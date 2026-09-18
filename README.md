@@ -1,0 +1,103 @@
+<p align="center"><img src="docs/images/logo.svg" alt="Yakumo" width="720"></p>
+
+# Yakumo
+
+A native port of **Monster Hunter Portable 3rd HD Ver.** made by static recompilation: the game's PSP code is translated ahead of time into C++ and compiled for your machine, then run on a reimplementation of the PSP system software. It is not an emulator — there is no interpreter or JIT at the heart of it — and it is not a decompilation.
+
+> **This project does not include any part of the game.** You need your own copy of Monster Hunter Portable 3rd HD Ver. (`NPJB-40001`). The build recompiles the game from that copy on your machine, and none of the result can be redistributed.
+
+## Status: almost playable
+
+You can create a character, explore the village and go on hunts, with sound, keyboard and gamepad. The game is not yet playable end to end without rough edges:
+
+| Works | Missing or rough |
+| --- | --- |
+| Booting, menus, character creation | **Lighting and fog** — scenes are flatter than they should be, and coloured markers over NPCs come out white |
+| The village and hunting areas | **Frame pacing** — nothing ties the game to real time yet, so sound runs ahead of the picture |
+| 3D models, animation, textures, transparency | **Streamed music** is silent; sound effects play |
+| Sound effects and SAS-driven music | **Cutscene movies** are skipped |
+| Keyboard, and gamepads with a real right-stick camera | Curved surfaces, save-data dialogs, networking |
+| All 355 code overlays recompiled | The village runs slower than other areas |
+
+Tested so far on macOS (Apple Silicon, Vulkan through MoltenVK). Steam Deck and Windows are the target platforms but have not been verified yet.
+
+## Requirements
+
+- Your own copy of the game (see above)
+- CMake 3.20 or newer, Ninja and a C++20 compiler
+- Python 3
+- SDL3, Vulkan and `glslangValidator`
+- A few gigabytes of free memory for the build; the recompiled code is large
+
+## Getting started
+
+In short:
+
+1. Link your disc image and decrypted executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`. The executable must match the SHA-256 listed in the profile's README.
+2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `MHP3rdNative`.
+3. Recompile the code overlays with `profiles/mhp3rd/scripts/build_overlays.sh` (about 40 minutes the first time; resumable).
+4. Run `out/mhp3rd/bin/MHP3rdNative`.
+
+The full instructions, including every setting, are in [`profiles/mhp3rd/README.md`](profiles/mhp3rd/README.md).
+
+## Controls
+
+On a gamepad the buttons are where you expect them: on a PlayStation pad circle confirms and cross backs out, as the game's prompts say, and the right stick drives the camera. On a keyboard the arrow keys are the D-pad, I/J/K/L the analog stick, X and Z are ○ and ✕, A and S are □ and △, Q and W are L and R, and Enter is START. Both tables are in the [profile README](profiles/mhp3rd/README.md#running).
+
+## Roadmap
+
+- Lighting and fog
+- Frame pacing, which also fixes sound running ahead
+- Streamed music and cutscene movies
+- Builds verified on Steam Deck and Windows
+- An in-game settings menu
+
+## How it works
+
+The executable is analyzed and every instruction of its code is emitted as C++, which is compiled into the program. The game also loads 355 code overlays at run time into a handful of shared memory slots; each is recompiled into its own library, and when the game loads one, the matching library is installed between frames. An interpreter covers any code the recompiled set does not reach, so nothing stops the game — it only runs slower there.
+
+Around that code sits a reimplementation of the PSP system: a kernel with threads, semaphores, event flags and timers; disc I/O read straight from the image; a Vulkan renderer for the PSP's graphics engine; software voice mixing for audio; and input from SDL3.
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the execution model and [`docs/DATA_BIN.md`](docs/DATA_BIN.md) the game's archive format.
+
+## Repository layout
+
+```text
+include/psprecomp/   Framework interfaces: runtime, memory, Allegrex state
+src/                 Framework: ELF loading, decoder, runtime, interpreter
+tools/               Framework: analyzer and C++ code generator
+tests/               Framework regression tests
+configs/             PSP NID data and generic examples
+profiles/mhp3rd/     Everything specific to this game: host, kernel, renderer,
+                     audio, input, configuration and build scripts
+docs/                Architecture, archive format, profile guide, source rules
+```
+
+The recompiled code itself is generated locally from your copy of the game and is never committed.
+
+## Built on PSPRecomp
+
+Yakumo is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
+
+```bash
+cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
+cmake --build out/framework --config Release
+ctest --test-dir out/framework -C Release --output-on-failure
+```
+
+To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
+
+## Credits
+
+- [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — the recompilation framework this project builds on
+- [SDL3](https://www.libsdl.org/) — windowing, input and audio output
+- [Vulkan](https://www.vulkan.org/) and [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — rendering
+- [stb_truetype](https://github.com/nothings/stb) — font rasterization
+- [svanheulen/mhef](https://github.com/svanheulen/mhef) — community documentation of the game's archive format
+- [Cinzel](https://github.com/NDISCOVER/Cinzel) and [Shippori Mincho](https://github.com/fontdasu/ShipporiMincho) — the logo's lettering, under the SIL Open Font License
+
+## License
+
+The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them — currently `profiles/mhp3rd/third_party/stb_truetype.h`, under MIT or public domain.
+
+Monster Hunter is a trademark of its owner. This project is not affiliated with or endorsed by its publisher.
