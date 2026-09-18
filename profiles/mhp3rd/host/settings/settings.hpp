@@ -21,6 +21,9 @@ enum class PerfDisplay { Off, Overlay, OverlayAndLog, Log };
 enum class RightStick { Camera, DPad, Off };
 // What answers the game when it asks for text such as the hunter's name.
 enum class NameEntry { Keyboard, Fixed };
+// Frames presented between the game's own 30: none, up to 60 per second, or
+// as many as the display refreshes.
+enum class FrameInterpolation { Off, Fps60, Display };
 
 struct Settings {
     // Video
@@ -32,6 +35,7 @@ struct Settings {
     bool sharp_screen{};               // nearest instead of linear scaling to the window
     bool sharp_textures{};             // nearest instead of linear texture sampling
     bool unthrottled{};                // let emulated time run ahead of real time
+    FrameInterpolation frame_interpolation{FrameInterpolation::Off};
     PerfDisplay perf{PerfDisplay::Off};
 
     // Text
