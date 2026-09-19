@@ -744,7 +744,6 @@ struct VulkanRenderer::Impl {
     Target held_target{};          // the newer frame's picture, kept for its own slot
     ImDrawData *frame_ui{};        // the interface drawn over this game frame
     float display_hz{};
-    std::vector<GpuVertex> blend_scratch;
     std::uint64_t last_texture_key{};  // what texture_for resolved last
     std::uint64_t texture_evictions{};  // textures dropped from the cache so far
     // The environment block written last, and how many environment and
@@ -3662,6 +3661,30 @@ void VulkanRenderer::Impl::replay(float t) {
     std::uint32_t written_object = kNoBlock;
     std::array<float, 16> written_world{};
     ObjectBlock blended_object{};
+    // Dynamic state and bindings are set only when they change: consecutive
+    // draws mostly share them.
+    const VkViewport *set_viewport = nullptr;
+    const VkRect2D *set_scissor = nullptr;
+    const std::array<float, 4> *set_blend_constants = nullptr;
+    VkDescriptorSet bound_texture = VK_NULL_HANDLE;
+    // One vertex buffer binding for the whole replay; each draw starts at its
+    // own first vertex, so vertices stay on a whole-vertex grid.
+    constexpr VkDeviceSize kVertexBytes = sizeof(GpuVertex);
+    bool vertex_buffer_bound = false;
+    // Blended transforms, reused while the matrices they come from repeat:
+    // the view and projection are usually the same for a whole frame, and the
+    // prims of one mesh share a world matrix.
+    struct BlendInputs {
+        const interpolation::Matrix *from{};
+        const interpolation::Matrix *to{};
+        [[nodiscard]] bool same(const interpolation::Matrix &a, const interpolation::Matrix &b) const {
+            return from != nullptr && (from == &a || std::memcmp(from, &a, sizeof(a)) == 0) &&
+                   (to == &b || std::memcmp(to, &b, sizeof(b)) == 0);
+        }
+    };
+    BlendInputs camera_view{}, camera_projection{}, object_world{};
+    interpolation::Matrix view{}, projection{}, world{}, view_world{}, transform{};
+    bool transform_valid = false;
     for (std::size_t i = 0; i < older.draws.size(); ++i) {
         const RecordedDraw &draw = older.draws[i];
         const interpolation::DrawSummary &summary = older.summaries[i];
@@ -3669,15 +3692,33 @@ void VulkanRenderer::Impl::replay(float t) {
         PushConstants push = draw.push;
         const ObjectBlock *object = draw.object != kNoBlock ? &older.objects[draw.object] : nullptr;
         const GpuVertex *vertices = older.vertices.data() + draw.first_vertex;
+        const GpuVertex *blend_to = nullptr;  // the newer frame's skinned vertices, when blended
         const std::int32_t partner = matching.newer_of[i];
         if (partner >= 0 && t != 0.0f) {
             const interpolation::DrawSummary &next = newer.summaries[static_cast<std::size_t>(partner)];
             const RecordedDraw &next_draw = newer.draws[static_cast<std::size_t>(partner)];
-            const auto world = interpolation::blend_affine(summary.world, next.world, t);
-            const auto view = interpolation::blend_affine(summary.view, next.view, t);
-            const auto projection = interpolation::blend_linear(summary.projection, next.projection, t);
-            const auto view_world = multiply(view, world);
-            push.transform = multiply(projection, view_world);
+            bool changed = !transform_valid;
+            if (!camera_view.same(summary.view, next.view)) {
+                view = interpolation::blend_affine(summary.view, next.view, t);
+                camera_view = {&summary.view, &next.view};
+                changed = true;
+            }
+            if (!camera_projection.same(summary.projection, next.projection)) {
+                projection = interpolation::blend_linear(summary.projection, next.projection, t);
+                camera_projection = {&summary.projection, &next.projection};
+                changed = true;
+            }
+            if (!object_world.same(summary.world, next.world)) {
+                world = interpolation::blend_affine(summary.world, next.world, t);
+                object_world = {&summary.world, &next.world};
+                changed = true;
+            }
+            if (changed) {
+                view_world = multiply(view, world);
+                transform = multiply(projection, view_world);
+                transform_valid = true;
+            }
+            push.transform = transform;
             push.view_z = {view_world[2], view_world[6], view_world[10], view_world[14]};
             // A texture that scrolls moves its offset a little each frame; a
             // jump of half the texture or more is a wrap, left alone.
@@ -3698,20 +3739,8 @@ void VulkanRenderer::Impl::replay(float t) {
             }
             // Skinning is linear in the bone matrices, so blending the skinned
             // vertices blends the bones.
-            if (summary.skinned && next_draw.vertex_count == draw.vertex_count) {
-                const GpuVertex *to = newer.vertices.data() + next_draw.first_vertex;
-                blend_scratch.assign(vertices, vertices + draw.vertex_count);
-                for (std::uint32_t v = 0; v < draw.vertex_count; ++v) {
-                    GpuVertex &out = blend_scratch[v];
-                    out.x += (to[v].x - out.x) * t;
-                    out.y += (to[v].y - out.y) * t;
-                    out.z += (to[v].z - out.z) * t;
-                    out.nx += (to[v].nx - out.nx) * t;
-                    out.ny += (to[v].ny - out.ny) * t;
-                    out.nz += (to[v].nz - out.nz) * t;
-                }
-                vertices = blend_scratch.data();
-            }
+            if (summary.skinned && next_draw.vertex_count == draw.vertex_count)
+                blend_to = newer.vertices.data() + next_draw.first_vertex;
         }
 
         // The recorded blocks are written again only where the block changes,
@@ -3726,25 +3755,54 @@ void VulkanRenderer::Impl::replay(float t) {
             written_object = draw.object;
             written_world = object->world;
         }
-        const VkDeviceSize bytes = static_cast<VkDeviceSize>(draw.vertex_count) * sizeof(GpuVertex);
-        if (vertex_offset + bytes > kVertexBufferBytes) break;
-        std::memcpy(static_cast<std::uint8_t *>(vertex_mapped) + vertex_offset, vertices,
-                    static_cast<std::size_t>(bytes));
+        const VkDeviceSize first = (vertex_offset + kVertexBytes - 1u) / kVertexBytes * kVertexBytes;
+        const VkDeviceSize bytes = static_cast<VkDeviceSize>(draw.vertex_count) * kVertexBytes;
+        if (first + bytes > kVertexBufferBytes) break;
+        auto *destination = reinterpret_cast<GpuVertex *>(static_cast<std::uint8_t *>(vertex_mapped) + first);
+        if (blend_to == nullptr) {
+            std::memcpy(destination, vertices, static_cast<std::size_t>(bytes));
+        } else {
+            // Blended straight into the vertex buffer.
+            for (std::uint32_t v = 0; v < draw.vertex_count; ++v) {
+                GpuVertex out = vertices[v];
+                const GpuVertex &to = blend_to[v];
+                out.x += (to.x - out.x) * t;
+                out.y += (to.y - out.y) * t;
+                out.z += (to.z - out.z) * t;
+                out.nx += (to.nx - out.nx) * t;
+                out.ny += (to.ny - out.ny) * t;
+                out.nz += (to.nz - out.nz) * t;
+                destination[v] = out;
+            }
+        }
+        vertex_offset = first;
 
         VkDescriptorSet texture = draw.texture_descriptor;
         if (!descriptors_valid && draw.textured && !draw.framebuffer_texture) {
             const auto found = textures.find(draw.texture);
             texture = found != textures.end() ? found->second.descriptor : white_texture.descriptor;
         }
-        vkCmdSetViewport(command_buffer, 0u, 1u, &draw.viewport);
-        vkCmdSetScissor(command_buffer, 0u, 1u, &draw.scissor);
-        vkCmdSetBlendConstants(command_buffer, draw.blend_constants.data());
+        if (set_viewport == nullptr || std::memcmp(set_viewport, &draw.viewport, sizeof(VkViewport)) != 0) {
+            vkCmdSetViewport(command_buffer, 0u, 1u, &draw.viewport);
+            set_viewport = &draw.viewport;
+        }
+        if (set_scissor == nullptr || std::memcmp(set_scissor, &draw.scissor, sizeof(VkRect2D)) != 0) {
+            vkCmdSetScissor(command_buffer, 0u, 1u, &draw.scissor);
+            set_scissor = &draw.scissor;
+        }
+        if (set_blend_constants == nullptr || *set_blend_constants != draw.blend_constants) {
+            vkCmdSetBlendConstants(command_buffer, draw.blend_constants.data());
+            set_blend_constants = &draw.blend_constants;
+        }
         if (draw.pipeline != bound_pipeline) {
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.pipeline);
             bound_pipeline = draw.pipeline;
         }
-        vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0u, 1u, &texture,
-                                0u, nullptr);
+        if (texture != bound_texture) {
+            vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0u, 1u,
+                                    &texture, 0u, nullptr);
+            bound_texture = texture;
+        }
         const std::array<std::uint32_t, 2> lighting_offsets{environment_offset, object_offset};
         if (!lighting_bound || lighting_offsets != bound_lighting_offsets) {
             vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1u, 1u,
@@ -3755,9 +3813,12 @@ void VulkanRenderer::Impl::replay(float t) {
         }
         vkCmdPushConstants(command_buffer, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0u, sizeof(push), &push);
-        const VkDeviceSize offset = vertex_offset;
-        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &offset);
-        vkCmdDraw(command_buffer, draw.vertex_count, 1u, 0u, 0u);
+        if (!vertex_buffer_bound) {
+            const VkDeviceSize start = 0u;
+            vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &start);
+            vertex_buffer_bound = true;
+        }
+        vkCmdDraw(command_buffer, draw.vertex_count, 1u, static_cast<std::uint32_t>(first / kVertexBytes), 0u);
         vertex_offset += bytes;
     }
     vkCmdEndRenderPass(command_buffer);
