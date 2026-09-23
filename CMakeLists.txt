@@ -7,6 +7,9 @@ project(Yakumo VERSION 0.1.0 LANGUAGES CXX)
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/portablekit/CMakeLists.txt")
     message(FATAL_ERROR "portablekit/ is empty. Fetch it with: git submodule update --init")
 endif()
+# compile_commands.json for every target, the game's as well as the
+# framework's, as the build wrote it before the framework moved out.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Before the framework, so ctest in the build directory runs its tests too.
 enable_testing()
 add_subdirectory(portablekit)
