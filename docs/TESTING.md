@@ -98,7 +98,7 @@ To measure, run with `MHP3RD_PERF=log MHP3RD_TRACE_STALLS=1` and stand still in 
 
 ### Frame rate (#39)
 
-Build `mhp3rd_interpolation_tests` and run it through CTest. It needs no GPU or game data and checks matching draws between two frames, the cut rules (a camera turn that keeps growing past 30 degrees blends, a sudden one does not), blending, when each present falls and what it shows at 45, 60, 90 and 120 (the blend factors, no picture going back, skipped presents never queued), and how the frame rate steps down and back up.
+Build `portablekit_interpolation_tests` (PortableKit's) and run it through CTest. It needs no GPU or game data and checks matching draws between two frames, the cut rules (a camera turn that keeps growing past 30 degrees blends, a sudden one does not), blending, when each present falls and what it shows at 45, 60, 90 and 120 (the blend factors, no picture going back, skipped presents never queued), and how the frame rate steps down and back up.
 
 For the manual check, open **Video → Frame rate**:
 
