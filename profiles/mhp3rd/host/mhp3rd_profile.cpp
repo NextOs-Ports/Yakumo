@@ -135,7 +135,8 @@ const GameProfile &game() {
         .boot_path = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN",
         .overlay_slots = kOverlaySlots,
         // The overlay libraries built before Yakumo moved onto PortableKit
-        // export mhp3rd_overlay_info and mhp3rd_register_overlay.
+        // export mhp3rd_overlay_info and mhp3rd_register_overlay. Temporary:
+        // remove at the next planned rebuild of the overlays (a release).
         .legacy_overlay_symbol_prefix = "mhp3rd",
 
         .save_game_name = "ULJM05800",

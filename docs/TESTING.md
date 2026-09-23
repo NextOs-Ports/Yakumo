@@ -77,7 +77,7 @@ With `MHP3RD_TRACE_PAD=1` the console shows `[pad] pointer captured` and `[pad] 
 
 ### Texture pack import (#49)
 
-`mhp3rd_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/NPJB40001`, `NPJB40001`, `PSP/TEXTURES/NPJB40001`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `NPJB40001`, `quick` and hashless packs refused, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/NPJB40001`, cancelling, and where the pack is read from with `MHP3RD_TEXTURE_PACK` and a pack used in place. `mhp3rd_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.
+`portablekit_texture_pack_tests` (CTest) checks the import without game data or a window: finding a pack in each layout (the pack folder, `textures/NPJB40001`, `NPJB40001`, `PSP/TEXTURES/NPJB40001`, in any case), a pack named for `ULJM05800` taken only when its `[games]` lists `NPJB40001`, `quick` and hashless packs refused, zipped packs refused with "unpack it first", key, image, size and missing-image counts, the copy into a staging folder, the swap that moves the old pack to `textures/.backup/<date>_<time>/NPJB40001`, cancelling, and where the pack is read from with `MHP3RD_TEXTURE_PACK` and a pack used in place. `portablekit_texture_pack_tests --check <folder>` prints what the menu would find in a real folder and reads nothing else.
 
 For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a copy of `settings.ini`, `EBOOT.ELF` and the disc image) and a real pack, then in **Video**:
 
@@ -90,7 +90,7 @@ For the manual check, use a throwaway data folder (`MHP3RD_DATA_DIR`, with a cop
 
 ### Renderer performance paths (#92)
 
-Build `mhp3rd_render_tests` and run it through CTest: it checks, without a GPU or game data, that the index lists transformed draws are now drawn with name exactly the vertices the old expansion wrote, in the same order.
+Build `portablekit_render_tests` and run it through CTest: it checks, without a GPU or game data, that the index lists transformed draws are now drawn with name exactly the vertices the old expansion wrote, in the same order.
 
 The speed changes each have an off switch that restores the old path: `MHP3RD_NO_DIRECT_VERTICES`, `MHP3RD_NO_LOOKUP_CACHE`, `MHP3RD_NO_BUFFER_REUSE` and `MHP3RD_NO_DRAW_MERGE`. When a frame looks wrong, run once with all four set: if the fault goes away, set them one at a time to find the change behind it, and report which. `MHP3RD_CHECK_DIRECT_VERTICES=1` compares every transformed draw with the old expansion while playing and prints `[direct-check] N draws compared, M differed`; M must stay 0.
 

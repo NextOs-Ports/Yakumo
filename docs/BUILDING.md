@@ -185,7 +185,7 @@ Keep `portablekit/include/psprecomp/` stable when you can. It is the one place w
 Work on separate features in separate clones without paying the long stages again:
 
 - **Generated code:** copy `profiles/mhp3rd/generated/` from a checkout that already has it. A plain `cp -R` is fine. Don't use copies that preserve old timestamps (`cp -p`, `rsync -a`, `tar`), because Ninja may then think the objects are newer than the sources.
-- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. It is safe as long as `portablekit/include/psprecomp/` is the same in both checkouts. Libraries built before Yakumo moved onto PortableKit still load: the profile names the entry points they export.
+- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. It is safe as long as `portablekit/include/psprecomp/` is the same in both checkouts. Libraries built before Yakumo moved onto PortableKit still load: the profile names the entry points they export (`legacy_overlay_symbol_prefix`). That is temporary, until the next planned rebuild of the overlays, such as a release build.
 - **Compiler cache:** `ccache` is shared by every checkout on the machine. A second clone at another path compiles almost entirely from the cache.
 - **Game data:** `MHP3RD_GAME_DIR=/path/to/game` points a build at a game directory (disc image, `EBOOT.ELF`, `ms0/` saves), so clones need no `prepare_game.sh` of their own.
 
