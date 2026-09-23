@@ -1,6 +1,6 @@
 # Third-party sources a Linux release bundles, pinned by version and SHA-256.
 # Sourced by build_in_sdk.sh and scripts/release_linux.sh. When a version
-# changes here or in cmake/FFmpeg.cmake, update THIRD_PARTY_NOTICES.md to
+# changes here or in portablekit/cmake/FFmpeg.cmake, update THIRD_PARTY_NOTICES.md to
 # match; the release script refuses to package when they disagree.
 
 SDL3_VERSION=3.4.16
@@ -8,7 +8,7 @@ SDL3_URL="https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VER
 SDL3_SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
 
 # FFmpeg is not pinned here: the build itself downloads, checks and builds the
-# LGPL-only FFmpeg it bundles (cmake/FFmpeg.cmake, MHP3RD_FFMPEG=bundled).
+# LGPL-only FFmpeg it bundles (portablekit/cmake/FFmpeg.cmake, PORTABLEKIT_FFMPEG=bundled).
 
 # Japanese text needs a CJK font. Releases carry one as a fallback for systems
 # (and Flatpak runtimes) without one.

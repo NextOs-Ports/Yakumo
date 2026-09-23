@@ -3,8 +3,8 @@
 #
 #   generate.sh [build_dir]
 #
-# Requires a framework build (psp_analyze/psp_recomp) in build_dir, default
-# out/mhp3rd. Output: profiles/mhp3rd/analysis and profiles/mhp3rd/generated.
+# Requires a build (PortableKit's psp_analyze/psp_recomp, in <build_dir>/portablekit)
+# in build_dir, default out/mhp3rd. Output: profiles/mhp3rd/analysis and profiles/mhp3rd/generated.
 set -euo pipefail
 
 profile_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,8 +19,8 @@ fi
 
 cmake --build "$build_dir" --target psp_analyze psp_recomp
 mkdir -p "$profile_dir/analysis"
-"$build_dir/psp_analyze" "$elf" "$profile_dir/analysis/report.json"
+"$build_dir/portablekit/psp_analyze" "$elf" "$profile_dir/analysis/report.json"
 # Regenerate in place: psp_recomp rewrites only units whose text changed and
 # removes units that no longer exist, so unchanged units keep their timestamps
 # and are not recompiled.
-"$build_dir/psp_recomp" "$elf" --auto "$profile_dir/generated"
+"$build_dir/portablekit/psp_recomp" "$elf" --auto "$profile_dir/generated"

@@ -53,7 +53,7 @@ Decodes the game's ATRAC3 and ATRAC3plus audio and its H.264 movies. FFmpeg is l
   ./configure --prefix=<prefix> --enable-shared --disable-static --disable-programs --disable-doc --disable-avdevice --disable-avformat --disable-avfilter --disable-swscale --disable-swresample --disable-network --disable-autodetect --disable-everything --enable-decoder=atrac3,atrac3p,h264 --disable-x86asm --disable-debug
   ```
 
-- Built by the Yakumo build itself, `profiles/mhp3rd/cmake/FFmpeg.cmake` in <https://github.com/TeamGDB/Yakumo>, which pins the version, checksum and configuration above.
+- Built by the Yakumo build itself, `cmake/FFmpeg.cmake` of PortableKit (<https://github.com/TeamGDB/PortableKit>, the `portablekit` submodule of <https://github.com/TeamGDB/Yakumo>), which pins the version, checksum and configuration above.
 
 **Source offer.** The exact FFmpeg source archive above is published on the same release page as every Yakumo build that contains it. For at least three years after we distribute a build, we will also provide that source to anyone who asks through the project's issue tracker, <https://github.com/TeamGDB/Yakumo/issues>, at no more than the cost of providing it.
 

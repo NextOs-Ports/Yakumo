@@ -4,7 +4,7 @@
 #
 #   1. SDL3 from the source pinned in sources.sh
 #   2. the recompiled executable (generate.sh, then Yakumo), with the
-#      LGPL-only FFmpeg the build bundles (cmake/FFmpeg.cmake)
+#      LGPL-only FFmpeg the build bundles (portablekit/cmake/FFmpeg.cmake)
 #   3. all 355 overlay libraries (build_overlays.sh)
 #   4. a staging tree with the executable, overlays/, lib/, fonts/ and
 #      licenses/, the part both the tarball and the Flatpak ship
@@ -73,14 +73,13 @@ fi
 step "Configuring Yakumo (release)"
 cmake -S "$repo_dir" -B "$build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
-    -DPSPRECOMP_PROFILE=mhp3rd \
-    -DMHP3RD_RELEASE=ON \
-    -DMHP3RD_FFMPEG=bundled \
-    -DMHP3RD_FFMPEG_DOWNLOAD_DIR="$sources" \
+    -DPORTABLEKIT_RELEASE=ON \
+    -DPORTABLEKIT_FFMPEG=bundled \
+    -DPORTABLEKIT_FFMPEG_DOWNLOAD_DIR="$sources" \
     -DCMAKE_PREFIX_PATH="$deps" \
     -DPSPRECOMP_GENERATED_JOBS="$jobs" | tee "$work/configure.log"
 # A release without the renderer or without music would configure fine; refuse it.
-for feature in "mhp3rd: Vulkan renderer enabled" "mhp3rd: bundled FFmpeg"; do
+for feature in "Yakumo: Vulkan renderer enabled" "portablekit: bundled FFmpeg"; do
     if ! grep -q "$feature" "$work/configure.log"; then
         echo "error: configure did not report '$feature'" >&2
         exit 1
@@ -91,8 +90,8 @@ step "Generating the recompiled code"
 "$profile_dir/scripts/generate.sh" "$build"
 
 step "Building Yakumo"
-cmake --build "$build" -j "$jobs" --target Yakumo mhp3rd_savedata_tests
-"$build/bin/mhp3rd_savedata_tests"
+cmake --build "$build" -j "$jobs" --target Yakumo portablekit_savedata_tests
+"$build/bin/portablekit_savedata_tests"
 
 step "Building the overlay libraries"
 "$profile_dir/scripts/build_overlays.sh" "$build" "$jobs"
@@ -136,9 +135,9 @@ cp "$deps_build/SDL3-$SDL3_VERSION/LICENSE.txt" "$stage/licenses/SDL3-LICENSE.tx
 # The FFmpeg build leaves its licence and a note of its source and configure
 # line next to the libraries.
 cp "$build/bin/lib/FFmpeg-COPYING.LGPLv2.1.txt" "$build/bin/lib/FFmpeg-SOURCE.txt" "$stage/licenses/"
-cp "$profile_dir/third_party/imgui/LICENSE.txt" "$stage/licenses/DearImGui-LICENSE.txt"
-cp "$profile_dir/third_party/tiny_aes/UNLICENSE" "$stage/licenses/tiny-AES-c-UNLICENSE.txt"
-cp "$profile_dir/third_party/xxhash/LICENSE" "$stage/licenses/xxHash-LICENSE.txt"
+cp "$repo_dir/portablekit/third_party/imgui/LICENSE.txt" "$stage/licenses/DearImGui-LICENSE.txt"
+cp "$repo_dir/portablekit/third_party/tiny_aes/UNLICENSE" "$stage/licenses/tiny-AES-c-UNLICENSE.txt"
+cp "$repo_dir/portablekit/third_party/xxhash/LICENSE" "$stage/licenses/xxHash-LICENSE.txt"
 cp "$sources/NotoSansCJK-LICENSE.txt" "$stage/licenses/NotoSansCJK-OFL.txt"
 
 step "Checking the staged program"

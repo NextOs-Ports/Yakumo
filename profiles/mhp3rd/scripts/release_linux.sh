@@ -63,16 +63,16 @@ fail() { echo "error: $*" >&2; exit 1; }
 
 sha256() { sha256sum "$1" | cut -d' ' -f1; }
 
-# The FFmpeg the build bundles, as pinned in cmake/FFmpeg.cmake.
-ffmpeg_cmake="$profile_dir/cmake/FFmpeg.cmake"
+# The FFmpeg the build bundles, as pinned in PortableKit's cmake/FFmpeg.cmake.
+ffmpeg_cmake="$repo_dir/portablekit/cmake/FFmpeg.cmake"
 cmake_value() { sed -n "s/^set($1 \(.*\))\$/\1/p" "$ffmpeg_cmake" | head -1; }
-FFMPEG_VERSION="$(cmake_value MHP3RD_FFMPEG_VERSION)"
+FFMPEG_VERSION="$(cmake_value PORTABLEKIT_FFMPEG_VERSION)"
 FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
-FFMPEG_FLAGS="$(sed -n '/^set(MHP3RD_FFMPEG_CONFIGURE_FLAGS/,/)/p' "$ffmpeg_cmake" |
-    sed 's/^set(MHP3RD_FFMPEG_CONFIGURE_FLAGS//; s/)$//' | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')"
+FFMPEG_FLAGS="$(sed -n '/^set(PORTABLEKIT_FFMPEG_CONFIGURE_FLAGS/,/)/p' "$ffmpeg_cmake" |
+    sed 's/^set(PORTABLEKIT_FFMPEG_CONFIGURE_FLAGS//; s/)$//' | tr -s ' \n' ' ' | sed 's/^ //; s/ $//')"
 [[ -n "$FFMPEG_VERSION" && -n "$FFMPEG_FLAGS" ]] || fail "cannot read the FFmpeg pins from $ffmpeg_cmake"
 grep -qF "\"$FFMPEG_URL\"" "$ffmpeg_cmake" ||
-    grep -qF 'https://ffmpeg.org/releases/ffmpeg-${MHP3RD_FFMPEG_VERSION}.tar.xz' "$ffmpeg_cmake" ||
+    grep -qF 'https://ffmpeg.org/releases/ffmpeg-${PORTABLEKIT_FFMPEG_VERSION}.tar.xz' "$ffmpeg_cmake" ||
     fail "unexpected FFmpeg source URL in $ffmpeg_cmake"
 
 # The notices must describe exactly what is bundled.

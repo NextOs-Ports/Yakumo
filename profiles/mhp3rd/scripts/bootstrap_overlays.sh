@@ -31,7 +31,7 @@ for round in $(seq 1 "$iterations"); do
     path=$(echo "$dump" | awk '{print $(NF-1)}')
     base=$(echo "$dump" | awk '{print $NF}')
     echo "=== adding overlay $base from $path"
-    python3 "$profile_dir/tools/add_overlay.py" "$build_dir" "$path" "$base" | tail -2
+    python3 "$repo_dir/portablekit/tools/add_overlay.py" --profile-dir "$profile_dir" "$build_dir" "$path" "$base" | tail -2
 
     cmake --build "$build_dir" --target Yakumo -j 3 > "$log_dir/build_round$round.log" 2>&1 ||
         { echo "build failed; see $log_dir/build_round$round.log"; exit 1; }
