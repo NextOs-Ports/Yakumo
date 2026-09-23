@@ -62,6 +62,14 @@ constexpr OtherRelease kOtherReleases[] = {
     {"ULJM05800", "This is the original PSP release of the game, which Yakumo does not support."},
 };
 
+// What LT/RT (L2/R2) may press for shooting instead of L and R. R goes on L2,
+// where it is held to aim, and the weapon's attack on R2: triangle for a bow,
+// circle for a bowgun. The buttons they copy keep working.
+constexpr TriggerProfile kTriggerProfiles[] = {
+    {"bows", "Bows (R / △)", 0x0200u, 0x1000u},
+    {"bowguns", "Bowguns (R / ○)", 0x0200u, 0x2000u},
+};
+
 // The game's camera, driven from PortableKit's camera input (camera/
 // game_camera.hpp). The framework asks through these; the answers are the
 // game's.
@@ -136,6 +144,10 @@ const GameProfile &game() {
         // The product code other players see in the announcement. Players of
         // the game's PSP release log in with the same one.
         .adhoc_product_code = "ULJM05800",
+
+        .trigger_profiles = kTriggerProfiles,
+        .trigger_profiles_note =
+            "Bows: R to aim and △ to shoot. Bowguns: R to aim and ○ to fire. R1, △ and ○ keep working.",
 
         .patch_loaded_image = &patch_loaded_image,
         .camera = &kCamera,
