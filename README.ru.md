@@ -71,7 +71,7 @@ Monster Hunter, Monster Hunter Portable 3rd HD Ver., CAPCOM, PlayStation, PSP и
 
 ## С чего начать
 
-Коротко:
+Коротко (клонируйте с `git clone --recursive` или выполните потом `git submodule update --init`: фреймворк подключён как подмодуль):
 
 1. Подготовьте исполняемый файл игры из своего образа диска: один раз соберите `Yakumo` без рекомпилированного кода и запустите его с `--install /путь/к/образу.iso`. Сторонний инструмент расшифровки не нужен. Затем подключите образ и этот файл к профилю скриптом `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Выполните конфигурацию, сгенерируйте рекомпилированный код скриптом `profiles/mhp3rd/scripts/generate.sh` и соберите `Yakumo`.
@@ -97,34 +97,32 @@ Esc или оба стика, нажатые вместе (L3+R3), открыв�
 
 Вокруг этого кода — заново написанная системная среда PSP: ядро с потоками, семафорами, флагами событий и таймерами; чтение диска прямо из образа; рендерер графического движка PSP на Vulkan; программное микширование голосов для звука; ввод через SDL3.
 
-Модель исполнения описана в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), формат архива игры — в [`docs/DATA_BIN.md`](docs/DATA_BIN.md). Дымовой тест и порядок отправки результатов — в [`docs/TESTING.md`](docs/TESTING.md).
+Модель исполнения описана в [`docs/ARCHITECTURE.md`](portablekit/docs/ARCHITECTURE.md) PortableKit, формат архива игры — в [`docs/DATA_BIN.md`](docs/DATA_BIN.md). Дымовой тест и порядок отправки результатов — в [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Устройство репозитория
 
 ```text
-include/psprecomp/   Фреймворк: интерфейсы рантайма, памяти, состояния Allegrex
-src/                 Фреймворк: загрузка ELF, декодер, рантайм, интерпретатор
-tools/               Фреймворк: анализатор и генератор кода на C++
-tests/               Регрессионные тесты фреймворка
-configs/             Данные NID для PSP и общие примеры
-profiles/mhp3rd/     Всё, что относится к этой игре: хост, ядро, рендерер,
-                     звук, ввод, конфигурация и скрипты сборки
-docs/                Архитектура, формат архива, руководство по профилям, правила
+portablekit/         PortableKit, подмодуль: рекомпилятор, рантайм и система PSP
+                     (ядро, HLE, рендерер, звук, ввод, сохранения, ad hoc,
+                     интерфейс, установщик)
+profiles/mhp3rd/     Всё, что относится к этой игре: её профиль, драйверы её
+                     камеры и вида, конфигурация, скрипты сборки и выпуска
+docs/                Сборка, тестирование, совместимость, выпуски, формат архива
 ```
 
 Сам рекомпилированный код генерируется локально из вашей копии игры и никогда не попадает в репозиторий.
 
 ## Основа — PSPRecomp
 
-**Yakumo** построен на [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — фреймворке статической рекомпиляции программ для PSP. Фреймворк не привязан к конкретной игре и собирается отдельно:
+**Yakumo** построен на [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp) — фреймворке статической рекомпиляции программ для PSP. Его рекомпилятор, рантайм и вся система PSP вокруг них теперь составляют [PortableKit](https://github.com/TeamGDB/PortableKit), который подключён к этому репозиторию подмодулем `portablekit`; Yakumo — профиль поверх него. PortableKit не привязан к конкретной игре и собирается отдельно:
 
 ```bash
-cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
+cmake -S portablekit -B out/framework
 cmake --build out/framework --config Release
 ctest --test-dir out/framework -C Release --output-on-failure
 ```
 
-Как поддержать другую игру — в [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). Правила о самостоятельно написанном коде и стороннем исходном коде — в [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md).
+Как поддержать другую игру — в [`docs/PROFILE_GUIDE.md`](portablekit/docs/PROFILE_GUIDE.md) PortableKit. Правила о самостоятельно написанном коде и стороннем исходном коде — в [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md).
 
 ## Авторы
 
@@ -143,4 +141,4 @@ ctest --test-dir out/framework -C Release --output-on-failure
 
 ## Лицензия
 
-Репозиторий распространяется под лицензией MIT, см. [`LICENSE`](LICENSE). Сторонние файлы сохраняют свои лицензии рядом с собой — сейчас это `profiles/mhp3rd/third_party/stb_truetype.h`, под MIT или в общественном достоянии.
+Репозиторий распространяется под лицензией MIT, см. [`LICENSE`](LICENSE). Сторонние файлы сохраняют свои лицензии рядом с собой; в самом этом репозитории их больше нет, а свои PortableKit перечисляет в [`docs/SOURCE_PROVENANCE.md`](portablekit/docs/SOURCE_PROVENANCE.md).

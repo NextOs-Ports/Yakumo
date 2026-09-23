@@ -49,11 +49,11 @@ Tested on macOS (Apple Silicon, Vulkan through MoltenVK), on a Steam Deck in Gam
 - SDL3, Vulkan (the loader and headers; MoltenVK on macOS) and `glslangValidator`
 - `make` and a C compiler on macOS and Linux, to build FFmpeg (see below)
 
-If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds but builds the game **without a window**: CMake prints `mhp3rd: renderer disabled` and the program runs headless. Check for `mhp3rd: Vulkan renderer enabled` in the configure output.
+If SDL3, Vulkan or `glslangValidator` is missing, configuration still succeeds but builds the game **without a window**: CMake prints `Yakumo: renderer disabled` and the program runs headless. Check for `Yakumo: Vulkan renderer enabled` in the configure output.
 
-The streamed music (ATRAC3) and the movies (H.264 with ATRAC3plus sound) are decoded by FFmpeg's shared `libavcodec` and `libavutil`. FFmpeg is part of the normal build; `MHP3RD_FFMPEG` chooses where it comes from (`cmake/FFmpeg.cmake` holds the pins):
+The streamed music (ATRAC3) and the movies (H.264 with ATRAC3plus sound) are decoded by FFmpeg's shared `libavcodec` and `libavutil`. FFmpeg is part of the normal build; `PORTABLEKIT_FFMPEG` chooses where it comes from (PortableKit's `portablekit/cmake/FFmpeg.cmake` holds the pins):
 
-- `bundled`, the default. The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds it with only the ATRAC3, ATRAC3plus and H.264 decoders, as LGPL-2.1-or-later shared libraries (configure stops if the result is not LGPL only). This takes a few minutes, once per build directory; a new version or configuration rebuilds it. The libraries and FFmpeg's licence go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, where FFmpeg's `configure` does not run with MSVC, it downloads a pinned, checksum-verified prebuilt LGPL shared FFmpeg 7.1.5 and puts its DLLs next to `Yakumo.exe` (see [BUILDING.md](../../docs/BUILDING.md#ffmpeg)). Configuration reports `mhp3rd: bundled FFmpeg 7.1.5 …; music and movies enabled`. To build offline, put the archive in `out/mhp3rd/_deps/downloads/` (`MHP3RD_FFMPEG_DOWNLOAD_DIR`) first.
+- `bundled`, the default. The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds it with only the ATRAC3, ATRAC3plus and H.264 decoders, as LGPL-2.1-or-later shared libraries (configure stops if the result is not LGPL only). This takes a few minutes, once per build directory; a new version or configuration rebuilds it. The libraries and FFmpeg's licence go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, where FFmpeg's `configure` does not run with MSVC, it downloads a pinned, checksum-verified prebuilt LGPL shared FFmpeg 7.1.5 and puts its DLLs next to `Yakumo.exe` (see [BUILDING.md](../../docs/BUILDING.md#ffmpeg)). Configuration reports `portablekit: bundled FFmpeg 7.1.5 …; music and movies enabled`. To build offline, put the archive in `out/mhp3rd/_deps/downloads/` (`PORTABLEKIT_FFMPEG_DOWNLOAD_DIR`) first.
 - `system` uses the FFmpeg that `pkg-config` finds, for example from `brew install ffmpeg` on macOS or `apt install libavcodec-dev libavutil-dev` on Debian and Ubuntu, and stops if there is none.
 - `OFF` builds without FFmpeg. This is possible but not recommended: the game then has no music and skips its movies, and configure prints a warning saying so.
 
@@ -67,7 +67,8 @@ Expect a full build to need several gigabytes of memory and some time: the gener
 profiles/mhp3rd/scripts/prepare_game.sh "/path/to/your.iso" /path/to/EBOOT.ELF
 
 # 2. Recompile the executable
-cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
+git submodule update --init                       # PortableKit, if the clone was not --recursive
+cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release
 profiles/mhp3rd/scripts/generate.sh
 cmake -S . -B out/mhp3rd                          # pick up the generated units
 cmake --build out/mhp3rd --target Yakumo -j 2
@@ -87,7 +88,7 @@ The program needs two things from your own copy of the game: the disc image and 
 
 1. A directory given on the command line or in `MHP3RD_GAME_DIR`.
 2. The **per-user data directory** that the installer fills.
-3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`. A release build (`-DMHP3RD_RELEASE=ON`, see [Release builds](#release-builds)) has no checkout and skips this.
+3. `profiles/mhp3rd/game` in the checkout, set up by `prepare_game.sh`. A release build (`-DPORTABLEKIT_RELEASE=ON`, see [Release builds](#release-builds)) has no checkout and skips this.
 
 If neither the per-user directory nor `profiles/mhp3rd/game` holds game data, the program starts its installer instead of the game.
 
@@ -131,7 +132,7 @@ When the window cannot be created, for example without a working Vulkan driver, 
 
 For development, `profiles/mhp3rd/game` works as before, with an executable decrypted by an external tool:
 
-1. Decrypt `PSP_GAME/SYSDIR/EBOOT.BIN` from your own image with an external tool, or take the `EBOOT.ELF` that `--install` wrote into the per-user directory. `tools/extract_iso.py <iso> <dir> /PSP_GAME/SYSDIR/EBOOT.BIN` extracts the encrypted file; the table above gives the hashes to check both files against.
+1. Decrypt `PSP_GAME/SYSDIR/EBOOT.BIN` from your own image with an external tool, or take the `EBOOT.ELF` that `--install` wrote into the per-user directory. `portablekit/tools/extract_iso.py <iso> <dir> /PSP_GAME/SYSDIR/EBOOT.BIN` extracts the encrypted file; the table above gives the hashes to check both files against.
 2. Populate `profiles/mhp3rd/game` (ignored by Git):
 
    ```bash
@@ -145,7 +146,7 @@ When the per-user directory also holds an installation, it takes precedence; sta
 ## Build
 
 ```bash
-cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
+cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release
 profiles/mhp3rd/scripts/generate.sh          # writes analysis/ and generated/
 cmake -S . -B out/mhp3rd                     # pick up the generated units
 cmake --build out/mhp3rd --target Yakumo -j 2
@@ -161,11 +162,11 @@ The build protects its incremental state on macOS and Linux:
 - **Damaged dependency log.** Before each build the wrapper checks `.ninja_deps` and repairs a damaged one with `ninja -t recompact`, which keeps every intact record. Do not delete `.ninja_deps` or `.ninja_log`: either costs a full rebuild.
 - **Compiler cache.** If `ccache` is installed, every compile goes through it, so a rebuild of unchanged code takes seconds instead of minutes, also across checkouts at different paths. `-DPSPRECOMP_CCACHE=OFF` turns it off.
 
-CMake prints a warning for Ninja 1.13.2, which cannot recover from a damaged dependency log by itself (upstream issue [#2703](https://github.com/ninja-build/ninja/issues/2703)). Building through `cmake --build` works around it; the fix is due in Ninja 1.14. [`docs/BUILD_SYSTEM.md`](../../docs/BUILD_SYSTEM.md) explains why incremental state gets lost and what the build does about it.
+CMake prints a warning for Ninja 1.13.2, which cannot recover from a damaged dependency log by itself (upstream issue [#2703](https://github.com/ninja-build/ninja/issues/2703)). Building through `cmake --build` works around it; the fix is due in Ninja 1.14. PortableKit's [`docs/BUILD_SYSTEM.md`](../../portablekit/docs/BUILD_SYSTEM.md) explains why incremental state gets lost and what the build does about it.
 
 ## Release builds
 
-Players can use a prebuilt release instead of building: it contains the program with the recompiled code and all overlay libraries, but no game data, and sets the game up from the player's disc image on first start. `-DMHP3RD_RELEASE=ON` builds the executable for that: it reads nothing from the checkout, and on Linux it loads the libraries it ships from `lib/` next to itself and links the C++ runtime statically. [`docs/RELEASING.md`](../../docs/RELEASING.md) describes how a release is built and published; `scripts/release_linux.sh` builds the Linux artifacts, and `packaging/` holds their manifests, launcher and third-party notices.
+Players can use a prebuilt release instead of building: it contains the program with the recompiled code and all overlay libraries, but no game data, and sets the game up from the player's disc image on first start. `-DPORTABLEKIT_RELEASE=ON` builds the executable for that: it reads nothing from the checkout, and on Linux it loads the libraries it ships from `lib/` next to itself and links the C++ runtime statically. [`docs/RELEASING.md`](../../docs/RELEASING.md) describes how a release is built and published; `scripts/release_linux.sh` builds the Linux artifacts, and `packaging/` holds their manifests, launcher and third-party notices.
 
 ## Code overlays
 
@@ -190,7 +191,7 @@ Each library resolves its framework symbols from the executable that loads it, s
 To build a single overlay by hand — for example one dumped from memory with `MHP3RD_DUMP_OVERLAYS`:
 
 ```bash
-profiles/mhp3rd/tools/add_overlay.py out/mhp3rd /path/to/overlay_0A05E600.bin 0x0A05E600
+portablekit/tools/add_overlay.py --profile-dir profiles/mhp3rd out/mhp3rd /path/to/overlay_0A05E600.bin 0x0A05E600
 ```
 
 It builds with 2 parallel jobs; `-j N` changes that. `--no-build` stops after recompiling and prints the target name, for building many overlays in one run. No reconfigure is needed: CMake notices the new overlay directory by itself.
@@ -338,7 +339,7 @@ Everything applies without a restart; the name settings take effect the next tim
 
 The Network section also shows the connection and has the troubleshooting tools described under [Multiplayer](#multiplayer-ad-hoc). The file also keeps `network.mac`, the address other players know you by (made up the first time you go on line; `MHP3RD_ADHOC_MAC` overrides it), `ui.menu_hint_seen`, set once the menu has been opened (until then a hint at the bottom of the screen says how to open it during the first seconds of play), and `ui.last_folder`, where the setup's file browser opens.
 
-The interface is drawn with [Dear ImGui](third_party/imgui/README.md). Its text uses a system font: San Francisco or Helvetica on macOS, Noto Sans, DejaVu Sans or Liberation Sans on Linux, Segoe UI on Windows, with a Japanese font merged in for file names; `MHP3RD_UI_FONT` names another `.ttf`. It scales with the window: about 27-pixel text on a Steam Deck's 1280×800 screen.
+The interface is drawn with [Dear ImGui](../../portablekit/third_party/imgui/README.md). Its text uses a system font: San Francisco or Helvetica on macOS, Noto Sans, DejaVu Sans or Liberation Sans on Linux, Segoe UI on Windows, with a Japanese font merged in for file names; `MHP3RD_UI_FONT` names another `.ttf`. It scales with the window: about 27-pixel text on a Steam Deck's 1280×800 screen.
 
 ## Game text
 
@@ -432,7 +433,7 @@ This release (`NPJB-40001`) asks for the original PSP release's folder names (`U
 To check a save folder without starting the game — for example one that the game reports as corrupted — run the save-data test program on it:
 
 ```bash
-out/mhp3rd/bin/mhp3rd_savedata_tests --check profiles/mhp3rd/game/ms0/PSP/SAVEDATA/ULJM05800 MHP3RD.BIN <key>
+out/mhp3rd/bin/portablekit_savedata_tests --check profiles/mhp3rd/game/ms0/PSP/SAVEDATA/ULJM05800 MHP3RD.BIN <key>
 ```
 
 `<key>` is the 32-digit key the game passes to the save-data utility; a run with `MHP3RD_TRACE_SAVEDATA=1` prints it as `key=` on every request for the game's own save. The program reports whether the hashes in `PARAM.SFO` and the data file's hash match and whether the file decrypts. Without arguments it runs the self-tests, which need no game data.
@@ -704,10 +705,10 @@ A game-side 60 fps patch was not used. The one community code for this game (Sar
 
 The option takes effect at run time, with no regeneration or rebuild. Turning it off stops all analog-camera writes, restores the game's vertical presets and passes the right stick through unchanged. Camera speed is in degrees per second of real time, measured between the game's flips, so it does not change when the game slows down.
 
-The code is in two layers under `host/camera/`:
+The code is in two layers under `host/camera/`, one PortableKit's and one this profile's:
 
-- `camera_input` is what the player asks for, independent of device and game. Rate sources (the stick, and the camera keys, which push it) hold a fraction of Camera speed; motion sources (the mouse, later a touch drag) add degrees. Every source adds together. New input devices only feed this layer.
-- `game_camera` drives the game's camera from that input. The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. Each camera mode needs its own driver: only the ordinary follow camera (mode 0) has one, and every other mode keeps the stock camera and stick. Aiming stays in mode 0: each update the camera asks the weapon's code whether it aims and keeps the answer at camera `+0x91` (-1 when not), and while it is not negative the game turns the camera after the aim, so for exactly that time the driver leaves the camera alone and sizes the aim instead. The weapon's aim code (in `game_task`) reads the stick as on/off commands and, in the states where the aim may move, steps the hunter's facing (followed object `+0x188`, copied by the game into `+0x74`) by 512 or 624 and one of three vertical aims (`+0xC22` or `+0x1457`, signed bytes limited to ±100, or `+0xC24`, a halfword limited to ±8192) by a fixed amount. While aiming, the stick reaches the game stretched to full length so the aim code steps at any push, and the driver replaces each step it finds since the previous update with one in proportion to the stick, in the game's direction. No step from the game means no movement. A mouse has no stick, so while the right stick is idle and the mouse has moved, the second stick shows the game the mouse's direction at full length, and a step the game makes then is sized by the mouse's degrees instead; degrees the game has not stepped for wait up to three updates (the game may step an update after it saw the push) and are then dropped, and a step made after they are spent is taken back.
+- `camera_input` (PortableKit's, `portablekit/host/camera/`) is what the player asks for, independent of device and game. Rate sources (the stick, and the camera keys, which push it) hold a fraction of Camera speed; motion sources (the mouse, later a touch drag) add degrees. Every source adds together. New input devices only feed this layer.
+- `game_camera` (this profile's) drives the game's camera from that input, and reaches PortableKit through the profile's camera driver hooks (`host/mhp3rd_profile.cpp`). The supported executable's ordinary camera calls a rotation helper at `0x088E6264`. The host wraps that helper and recognises this caller, taking the camera address directly from its context. It adjusts yaw and the temporary eye offset before the game applies collision handling. Manual height changes also advance the current eye height to avoid the game's 1/8 smoothing causing a long coast. Each camera mode needs its own driver: only the ordinary follow camera (mode 0) has one, and every other mode keeps the stock camera and stick. Aiming stays in mode 0: each update the camera asks the weapon's code whether it aims and keeps the answer at camera `+0x91` (-1 when not), and while it is not negative the game turns the camera after the aim, so for exactly that time the driver leaves the camera alone and sizes the aim instead. The weapon's aim code (in `game_task`) reads the stick as on/off commands and, in the states where the aim may move, steps the hunter's facing (followed object `+0x188`, copied by the game into `+0x74`) by 512 or 624 and one of three vertical aims (`+0xC22` or `+0x1457`, signed bytes limited to ±100, or `+0xC24`, a halfword limited to ±8192) by a fixed amount. While aiming, the stick reaches the game stretched to full length so the aim code steps at any push, and the driver replaces each step it finds since the previous update with one in proportion to the stick, in the game's direction. No step from the game means no movement. A mouse has no stick, so while the right stick is idle and the mouse has moved, the second stick shows the game the mouse's direction at full length, and a step the game makes then is sized by the mouse's degrees instead; degrees the game has not stepped for wait up to three updates (the game may step an update after it saw the push) and are then dropped, and a step made after they are spent is taken back.
 
 Safeguards: CMake finds the generated unit that holds the rotation helper and fails the configure if none does, so a new partition of the corpus cannot call the wrong code. At start-up the driver compares twenty-two instructions and constants of the game (listed in `game_camera.cpp`) with what it expects and stays out, saying which differs, if any does. The wrapper is installed only when the option is on (from the first frame, by default): a player who turns it off before starting keeps the helper's generated unit on its direct calls, and the feature costs nothing. No shared preset table or generated code is patched, and guest RAM is never scanned.
 
@@ -755,7 +756,7 @@ Safeguards: CMake finds the generated unit that holds the rotation helper and fa
 | `MHP3RD_TRACE_PAD=1` | Log the pad state whenever it changes |
 | `MHP3RD_TRACE_OSK=1` | Every keyboard utility call with the status it returns, and the words of the parameter block, its first field and the strings they point to |
 | `MHP3RD_TRACE_ADHOC=1` | Every ad hoc, network dialog and wireless call with its arguments and result, and every packet header sent to or received from the ad hoc server (menu: Network, *Log every call and packet*) |
-| `MHP3RD_INPUT_SCRIPT` | Scripted keys, mouse motion and buttons, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup, the on-screen keyboard and the game's controls without a person at the controls; the syntax is in `host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected; its keys reach the game through the bindings as well as the interface; with mouse steps the pointer counts as captured without taking the real one. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick;400:key W 30;430:mouse 50 0` |
+| `MHP3RD_INPUT_SCRIPT` | Scripted keys, mouse motion and buttons, virtual-gamepad buttons and axes, dropped files and window captures, for testing the menu, the setup, the on-screen keyboard and the game's controls without a person at the controls; the syntax is in `portablekit/host/ui/input_script.hpp`. Its virtual gamepad also becomes the game's pad, in place of a real one that is connected; its keys reach the game through the bindings as well as the interface; with mouse steps the pointer counts as captured without taking the real one. Example: `300:key Escape;330:shot menu;360:pad leftstick+rightstick;400:key W 30;430:mouse 50 0` |
 | `MHP3RD_INPUT_LIVE` | A file read while the game runs; each line appended to it is an input-script step timed from when it is read, to drive two instances side by side |
 | `MHP3RD_DUMP_OVERLAYS` | Directory to dump an overlay that has no library into |
 | `PSPRECOMP_NO_INTERPRETER=1` | Stop at uncompiled code instead of interpreting it |
@@ -823,12 +824,14 @@ Each kind that happened is listed with its time per frame averaged over the seco
 
 ## Host layout
 
+This profile's own code is `host/mhp3rd_profile.cpp`, the one definition of `portablekit::game()` (the release, its hashes and its key, the memory layout, the overlay slots, the save folders, the ad hoc product code, and the hooks below), and `host/camera/game_camera.*` and `host/camera/game_aspect.*`, the drivers for the game's camera and its view's shape. Everything else is PortableKit's, under `portablekit/host/`:
+
 ```text
 host/main.cpp                    Entry point: finding the game data, executable check, startup
 host/app_paths.{hpp,cpp}         The executable's own location, and what a release ships next to it
 host/install/                    First-run installer: per-user directory, image checks, executable preparation
 host/settings/                   Player settings: settings.ini, environment overrides, defaults
-host/camera/                     Camera input from every device, the driver for the game's own camera, and its view's shape
+host/camera/                     Camera input from every device, and what the framework asks a game's camera driver
 host/input/                      Keyboard and mouse bindings: names, settings.ini spelling, what held keys press
 host/ui/                         Yakumo's own interface (Dear ImGui): in-game menu, setup screens, file browser, on-screen keyboard
 host/overlays.{hpp,cpp}          Overlay library loading and run-time installation
@@ -872,12 +875,11 @@ Every import runs at the outer dispatch level, so a blocking import saves the ca
 
 ```text
 config/       Executable identity and overlay slot map
-host/         Bootstrap, kernel, HLE, graphics, audio
+host/         The profile (mhp3rd_profile.cpp) and the game's camera and view drivers
 scripts/      prepare_game.sh, generate.sh, build_overlays.sh, bootstrap_overlays.sh, release_linux.sh
 packaging/    Release packaging: third-party notices; linux/ holds the Flatpak manifest, launcher and SDK build
-tools/        ISO and DATA.BIN extraction, overlay wrapping, shader and NID table embedding
-tests/        Save-data self-tests and save checker (mhp3rd_savedata_tests)
-third_party/  stb_truetype, tiny-AES-c (installer and saves), Dear ImGui (menu and setup screens)
+tools/        DATA.BIN extraction (databin.py); the other tools are PortableKit's
+tests/        The camera and view drivers' tests (mhp3rd_camera_tests, mhp3rd_aspect_tests)
 game/         Local game data: EBOOT.ELF, disc.iso, ms0/ (ignored)
 analysis/     Analyzer output and extracted overlays (ignored)
 generated/    Recompiled executable (ignored)

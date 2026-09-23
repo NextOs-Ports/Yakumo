@@ -2,7 +2,7 @@
 
 ## Automated
 
-- **Framework tests** run with `ctest --test-dir out/framework` and need no game data.
+- **Framework tests** run with `ctest --test-dir out/mhp3rd` (or in a build of `portablekit/` alone) and need no game data.
 - **Builds on every platform** in CI — planned in [#15](https://github.com/TeamGDB/Yakumo/issues/15).
 - **Regression tests on your own copy of the game**, replaying recorded input and comparing frames against reference images — planned in [#16](https://github.com/TeamGDB/Yakumo/issues/16).
 
@@ -62,7 +62,7 @@ For the manual check, open **Video** in the menu and compare the three **Aspect 
 
 ### Keyboard and mouse (#94)
 
-`mhp3rd_input_tests` (CTest) checks the bindings without SDL or game data: key and button names, how `settings.ini` spells them, the shipped layouts, the menu's rebinding rules and what held keys press. `mhp3rd_camera_tests` covers the mouse in the camera layer: its turn in the ordinary camera, sizing the game's aim steps from the mouse (including a step the game makes an update late, and one made after the mouse stopped), and switching the game's own turn where the port does not drive the camera.
+`portablekit_input_tests` (CTest, PortableKit's) checks the bindings without SDL or game data: key and button names, how `settings.ini` spells them, the shipped layouts, the menu's rebinding rules and what held keys press. `mhp3rd_camera_tests` covers the mouse in the camera layer: its turn in the ordinary camera, sizing the game's aim steps from the mouse (including a step the game makes an update late, and one made after the mouse stopped), and switching the game's own turn where the port does not drive the camera.
 
 For the manual check, unplug the gamepad (or leave it untouched) and play from the title screen with the keyboard and mouse only, on the default layout (see the profile README's *Keyboard and mouse*):
 

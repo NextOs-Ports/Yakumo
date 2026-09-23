@@ -116,11 +116,12 @@ Windows specifics:
 The same on every platform. On Windows, run them in Git Bash from a Visual Studio developer prompt.
 
 ```bash
-git clone https://github.com/TeamGDB/Yakumo.git
+git clone --recursive https://github.com/TeamGDB/Yakumo.git
 cd Yakumo
+# In an existing clone, or one made without --recursive: git submodule update --init
 
 # 1. Configure and build the bootstrap (no game code yet: a few minutes)
-cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release -DPSPRECOMP_PROFILE=mhp3rd
+cmake -S . -B out/mhp3rd -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build out/mhp3rd --target Yakumo
 
 # 2. Prepare EBOOT.ELF from your disc image. --in-place uses the image where it is;
@@ -144,23 +145,23 @@ profiles/mhp3rd/scripts/build_overlays.sh
 out/mhp3rd/bin/Yakumo
 ```
 
-Check the configure output for `mhp3rd: Vulkan renderer enabled`. Without SDL3, Vulkan or `glslangValidator`, configuration still succeeds but builds a program with no window.
+Check the configure output for `Yakumo: Vulkan renderer enabled`. Without SDL3, Vulkan or `glslangValidator`, configuration still succeeds but builds a program with no window.
 
 Stage 5 is resumable. If it stops, run it again: overlays that are already built are skipped. You can play before it finishes. An overlay without its library runs in an interpreter, which works but is much slower, so hunts stutter until the overlays are built.
 
 ### FFmpeg
 
-The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. FFmpeg is part of the normal build and needs no setup. `MHP3RD_FFMPEG` chooses where it comes from:
+The streamed music (ATRAC3, ATRAC3plus) and the movies (H.264) are decoded by FFmpeg's `libavcodec`. FFmpeg is part of the normal build and needs no setup. `PORTABLEKIT_FFMPEG` chooses where it comes from:
 
-| `MHP3RD_FFMPEG` | What you get |
+| `PORTABLEKIT_FFMPEG` | What you get |
 | --- | --- |
 | `bundled` (default) | The first configure of a build directory downloads FFmpeg 7.1.5, checks its SHA-256 and builds a minimal LGPL configuration with just the three decoders the game uses. This takes a few minutes, once; later configures and builds reuse it. The libraries go to `out/mhp3rd/bin/lib/`, which the executable finds through its rpath, so the game needs no FFmpeg on the system. On Windows, see below |
 | `system` | The `libavcodec` and `libavutil` that `pkg-config` finds, for example from `brew install ffmpeg` or `apt install libavcodec-dev libavutil-dev`. Configure stops if there are none |
 | `OFF` | No FFmpeg. Not recommended: the game then has no music and skips its movies, and configure warns about it |
 
-The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhp3rd/_deps/downloads/` before configuring. `profiles/mhp3rd/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
+The bundled build needs `make` and a C compiler, which the tools above already include. Offline, put `ffmpeg-7.1.5.tar.xz` (or the Windows `.zip`) in `out/mhp3rd/_deps/downloads/` before configuring. PortableKit's `portablekit/cmake/FFmpeg.cmake` holds the pinned versions and checksums.
 
-**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `Yakumo.exe`, and reports `mhp3rd: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
+**On Windows** FFmpeg's `configure` needs a POSIX shell and `make`, which the MSVC toolchain lacks, so `bundled` downloads a pinned prebuilt instead: the LGPL shared build of FFmpeg 7.1.5 from [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), checked against its SHA-256. It needs no extra setup. Configure copies `avcodec-61.dll`, `avutil-59.dll` and `swresample-5.dll`, with FFmpeg's licence, next to `Yakumo.exe`, and reports `portablekit: bundled FFmpeg 7.1.5 (prebuilt, LGPL); music and movies enabled`.
 
 ## Working on the code
 
@@ -172,19 +173,19 @@ The generated code is its own object library, and every compile goes through `cc
 | --- | --- | --- |
 | Host code: kernel, HLE, renderer, audio, interface, settings | The files you changed, then a relink | Seconds |
 | A shader | The embedded shaders and the renderer | Seconds |
-| The runtime's sources in `src/` | Those files, then every tool and executable that links the runtime | Seconds to a minute |
-| `profiles/mhp3rd/CMakeLists.txt` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
-| Headers in `include/psprecomp/` (the runtime the generated code uses) | All 89 generated units **and** all 355 overlays | The full build again, unless `ccache` already holds that exact version |
+| The runtime's sources in `portablekit/src/` | Those files, then every tool and executable that links the runtime | Seconds to a minute |
+| `profiles/mhp3rd/CMakeLists.txt` or `portablekit/cmake/PortableKit.cmake` (flags, sources) | Host files only; the generated units have their own flags | Seconds to a minute |
+| Headers in `portablekit/include/psprecomp/` (the runtime the generated code uses) | All 89 generated units **and** all 355 overlays | The full build again, unless `ccache` already holds that exact version |
 | The recompiler, then `generate.sh` | Only the units whose generated text changed | Depends on the change |
 
-Keep `include/psprecomp/` stable when you can. It is the one place where a small edit costs hours.
+Keep `portablekit/include/psprecomp/` stable when you can. It is the one place where a small edit costs hours.
 
 ### Several checkouts
 
 Work on separate features in separate clones without paying the long stages again:
 
 - **Generated code:** copy `profiles/mhp3rd/generated/` from a checkout that already has it. A plain `cp -R` is fine. Don't use copies that preserve old timestamps (`cp -p`, `rsync -a`, `tar`), because Ninja may then think the objects are newer than the sources.
-- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. It is safe as long as `include/psprecomp/` is the same in both checkouts.
+- **Overlays:** don't rebuild them per clone. Point the game at one built set with `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. It is safe as long as `portablekit/include/psprecomp/` is the same in both checkouts. Libraries built before Yakumo moved onto PortableKit still load: the profile names the entry points they export.
 - **Compiler cache:** `ccache` is shared by every checkout on the machine. A second clone at another path compiles almost entirely from the cache.
 - **Game data:** `MHP3RD_GAME_DIR=/path/to/game` points a build at a game directory (disc image, `EBOOT.ELF`, `ms0/` saves), so clones need no `prepare_game.sh` of their own.
 
@@ -201,11 +202,11 @@ MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo 
 - **One build per build directory at a time.** On macOS and Linux, `cmake --build` takes a lock, so a second build waits for the first. Run builds through `cmake --build`, not `ninja` directly, because running `ninja` directly bypasses the lock. Windows has no lock yet: don't start two builds of one directory there.
 - **Keep `.ninja_deps` and `.ninja_log`.** Deleting them forces a full rebuild. A damaged dependency log is repaired automatically before each build.
 
-[BUILD_SYSTEM.md](BUILD_SYSTEM.md) explains why these rules exist.
+PortableKit's [BUILD_SYSTEM.md](../portablekit/docs/BUILD_SYSTEM.md) explains why these rules exist.
 
 ### Tests and diagnostics
 
-- `cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests`, then `ctest --test-dir out/mhp3rd`, builds and runs the unit tests of the recompiler framework and of the save-data format. Neither needs game data.
+- `cmake --build out/mhp3rd`, then `ctest --test-dir out/mhp3rd`, builds and runs the unit tests: PortableKit's (the recompiler, the save-data format, ad hoc, the keyboard and mouse bindings) and this profile's (the camera driver and the view's shape). None of them needs game data.
 - [TESTING.md](TESTING.md) is the manual smoke test: about fifteen minutes through every part of the game that works.
 - `MHP3RD_PERF=1`, or F3 in the game, shows the performance overlay. The `MHP3RD_TRACE_*` variables log individual subsystems. All of them are listed under *Diagnostics* in the [profile README](../profiles/mhp3rd/README.md#diagnostics).
 - `MHP3RD_NO_RENDER=1` runs without a window, which is useful for quick boot checks in scripts. Bound such runs with `timeout`.
@@ -214,9 +215,9 @@ MHP3RD_DATA_DIR=~/yakumo-a MHP3RD_GAME_DIR=~/game-a MHP3RD_WINDOW_TITLE="Yakumo 
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `mhp3rd: renderer disabled` | SDL3, Vulkan or `glslangValidator` was not found. Install them and configure again |
+| `Yakumo: renderer disabled` | SDL3, Vulkan or `glslangValidator` was not found. Install them and configure again |
 | The compiler is killed, or the machine swaps, while compiling generated units | Too many large units at once: configure with `-DPSPRECOMP_GENERATED_JOBS=1` |
 | The game crashes right after starting on Linux | The main thread's stack is too small: start it after `ulimit -s 65536` |
 | `another build is running` | A build of the same directory is still going. Wait, or find the leftover `ninja` process |
-| No music and no movies | The build was configured with `-DMHP3RD_FFMPEG=OFF`, or the FFmpeg libraries next to the executable are missing; see [FFmpeg](#ffmpeg) |
+| No music and no movies | The build was configured with `-DPORTABLEKIT_FFMPEG=OFF`, or the FFmpeg libraries next to the executable are missing; see [FFmpeg](#ffmpeg) |
 | `No game data found` | Run step 2 (`--install`) or step 3 (`prepare_game.sh`), or set `MHP3RD_GAME_DIR` |

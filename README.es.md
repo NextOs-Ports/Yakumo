@@ -71,7 +71,7 @@ Compilar desde el código fuente es una forma plenamente compatible de jugar. Se
 
 ## Primeros pasos
 
-En resumen:
+En resumen (clona con `git clone --recursive`, o ejecuta después `git submodule update --init`: el framework es un submódulo):
 
 1. Prepara el ejecutable del juego a partir de tu imagen de disco: compila `Yakumo` una vez sin código recompilado y ejecútalo con `--install /ruta/a/la/imagen.iso`. No hace falta ninguna herramienta de descifrado externa. Después enlaza la imagen y ese ejecutable con el perfil mediante `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Configura, genera el código recompilado con `profiles/mhp3rd/scripts/generate.sh` y compila `Yakumo`.
@@ -97,34 +97,33 @@ El ejecutable se analiza y cada instrucción de su código se convierte en C++, 
 
 Alrededor de ese código hay una reimplementación del sistema de la PSP: un núcleo con hilos, semáforos, flags de eventos y temporizadores; lectura del disco directamente desde la imagen; un renderizador en Vulkan para el motor gráfico de la PSP; mezcla de voces por software para el audio; y entrada mediante SDL3.
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describe el modelo de ejecución y [`docs/DATA_BIN.md`](docs/DATA_BIN.md) el formato de archivo del juego. [`docs/TESTING.md`](docs/TESTING.md) contiene la prueba de humo y cómo informar de los resultados.
+[`docs/ARCHITECTURE.md`](portablekit/docs/ARCHITECTURE.md) de PortableKit describe el modelo de ejecución y [`docs/DATA_BIN.md`](docs/DATA_BIN.md) el formato de archivo del juego. [`docs/TESTING.md`](docs/TESTING.md) contiene la prueba de humo y cómo informar de los resultados.
 
 ## Estructura del repositorio
 
 ```text
-include/psprecomp/   Framework: interfaces del runtime, la memoria y el estado Allegrex
-src/                 Framework: carga de ELF, decodificador, runtime, intérprete
-tools/               Framework: analizador y generador de código C++
-tests/               Pruebas de regresión del framework
-configs/             Datos de NID de PSP y ejemplos genéricos
-profiles/mhp3rd/     Todo lo específico de este juego: host, núcleo, renderizador,
-                     audio, entrada, configuración y scripts de compilación
-docs/                Arquitectura, formato de archivo, guía de perfiles, normas
+portablekit/         PortableKit, un submódulo: el recompilador, el runtime y el
+                     sistema de PSP (núcleo, HLE, renderizador, audio, entrada,
+                     partidas guardadas, ad hoc, interfaz, instalador)
+profiles/mhp3rd/     Todo lo específico de este juego: su perfil, los controladores
+                     de su cámara y de su vista, configuración, scripts de
+                     compilación y de publicación
+docs/                Compilación, pruebas, compatibilidad, publicaciones, formato de archivo
 ```
 
 El código recompilado se genera localmente a partir de tu copia del juego y nunca se sube al repositorio.
 
 ## Basado en PSPRecomp
 
-**Yakumo** está construido sobre [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), un framework de recompilación estática para software de PSP. El framework no depende de ningún juego y se puede compilar por separado:
+**Yakumo** está construido sobre [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), un framework de recompilación estática para software de PSP. Su recompilador, su runtime y todo el sistema de PSP que los rodea forman ahora [PortableKit](https://github.com/TeamGDB/PortableKit), que este repositorio incluye como el submódulo `portablekit`; Yakumo es un perfil sobre él. PortableKit no depende de ningún juego y se puede compilar por separado:
 
 ```bash
-cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
+cmake -S portablekit -B out/framework
 cmake --build out/framework --config Release
 ctest --test-dir out/framework -C Release --output-on-failure
 ```
 
-Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) recoge las normas sobre código escrito de forma independiente y código de terceros.
+Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](portablekit/docs/PROFILE_GUIDE.md) de PortableKit. [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) recoge las normas sobre código escrito de forma independiente y código de terceros.
 
 ## Autores
 
@@ -143,4 +142,4 @@ Para dar soporte a otro juego, consulta [`docs/PROFILE_GUIDE.md`](docs/PROFILE_G
 
 ## Licencia
 
-El repositorio se distribuye bajo la licencia MIT; consulta [`LICENSE`](LICENSE). Los archivos de terceros conservan sus propias licencias junto a ellos; actualmente, `profiles/mhp3rd/third_party/stb_truetype.h`, bajo MIT o de dominio público.
+El repositorio se distribuye bajo la licencia MIT; consulta [`LICENSE`](LICENSE). Los archivos de terceros conservan sus propias licencias junto a ellos; este repositorio ya no contiene ninguno, y PortableKit enumera los suyos en [`docs/SOURCE_PROVENANCE.md`](portablekit/docs/SOURCE_PROVENANCE.md).

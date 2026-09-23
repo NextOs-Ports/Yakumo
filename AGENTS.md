@@ -2,7 +2,7 @@
 
 Working notes for anyone changing this repository: people and coding agents alike. Read this first. It is short on purpose and links to the longer documents instead of repeating them.
 
-Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`). It recompiles the game's PSP (MIPS) code to C++ ahead of time and supplies the PSP system around it: the kernel, HLE modules, a Vulkan GE renderer, audio, input, save data, ad hoc networking and an ImGui interface. The C++ lives in `profiles/mhp3rd/host/` (the port) and `include/psprecomp/` plus `src/` (the reusable runtime and recompiler).
+Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`). It recompiles the game's PSP (MIPS) code to C++ ahead of time and supplies the PSP system around it: the kernel, HLE modules, a Vulkan GE renderer, audio, input, save data, ad hoc networking and an ImGui interface. The game's own C++ lives in `profiles/mhp3rd/host/`: the profile (`mhp3rd_profile.cpp`) and the drivers for the game's camera and view. Everything else, the reusable recompiler, runtime and PSP system, is [PortableKit](https://github.com/TeamGDB/PortableKit), in the `portablekit` submodule (`git submodule update --init`). A framework change is made there, on a PortableKit branch, and tried here by moving the submodule.
 
 ## Rules
 
@@ -17,10 +17,10 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 [docs/BUILDING.md](docs/BUILDING.md) is the full guide. A full build from a fresh clone takes about two hours on an M1 and longer on weaker machines. Most of that can be skipped:
 
 - **Generated code.** Copy `profiles/mhp3rd/generated/` from a checkout that already has it with a plain `cp -R`, not a copy that keeps old timestamps.
-- **Overlays.** Don't rebuild them per checkout: `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. This is safe while `include/psprecomp/` is unchanged.
+- **Overlays.** Don't rebuild them per checkout: `MHP3RD_OVERLAY_DIR=/path/to/out/mhp3rd/bin/overlays`. This is safe while `portablekit/include/psprecomp/` is unchanged.
 - **ccache.** Install it; the build uses it automatically, across checkouts.
 - **Game data.** Set `MHP3RD_GAME_DIR` to a game directory instead of running `prepare_game.sh` in every clone.
-- **Host-only changes rebuild in seconds.** Changes under `include/psprecomp/` rebuild everything, including all 355 overlays, so avoid them unless they are the point.
+- **Host-only changes rebuild in seconds.** Changes under `portablekit/include/psprecomp/` rebuild everything, including all 355 overlays, so avoid them unless they are the point.
 - **Build commands.** Build with `cmake --build`, never `ninja` directly: `cmake --build` holds the per-directory lock. Run one build per build directory. Keep parallelism low (`-j2`), because generated units need gigabytes of memory each. Never delete `.ninja_deps` or `.ninja_log`.
 
 ## Running and testing
@@ -28,7 +28,7 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 - **Bound every run.** `timeout 60 out/mhp3rd/bin/Yakumo`. Never leave a game running, and never drive it with an open-ended input loop, such as pressing confirm forever: it does not converge, and someone may be watching the screen.
 - **Quick boot checks.** `MHP3RD_NO_RENDER=1 MHP3RD_NO_AUDIO=1 timeout 40 …`, then look for the function count and `[overlay] installed` in the output.
 - **Scripted input and captures.**
-  - `MHP3RD_INPUT_SCRIPT` sends keys, virtual gamepad input and dropped files, and captures the window. The syntax is in `profiles/mhp3rd/host/ui/input_script.hpp`.
+  - `MHP3RD_INPUT_SCRIPT` sends keys, virtual gamepad input and dropped files, and captures the window. The syntax is in `portablekit/host/ui/input_script.hpp`.
   - `MHP3RD_SCREENSHOT_DIR` captures the game's own frames.
   - Look at the captures; don't assume.
 - **Several instances.** For multiplayer or before/after comparisons, give each instance its own `MHP3RD_DATA_DIR`, its own saves, and an `MHP3RD_WINDOW_TITLE`.
@@ -38,7 +38,7 @@ Yakumo is a native port of *Monster Hunter Portable 3rd HD Ver.* (`NPJB-40001`).
 - **Tracing.**
   - `MHP3RD_TRACE_*` variables log one subsystem each: GE, material and lighting registers, save data, fonts, pad, audio, ATRAC, MPEG, ad hoc, I/O, kernel.
   - All the variables are listed under *Diagnostics* in the [profile README](profiles/mhp3rd/README.md#diagnostics).
-- **Unit tests.** `cmake --build out/mhp3rd --target psprecomp_tests mhp3rd_savedata_tests && ctest --test-dir out/mhp3rd`.
+- **Unit tests.** `cmake --build out/mhp3rd && ctest --test-dir out/mhp3rd`: PortableKit's tests and this profile's camera and view tests.
 - **Manual smoke test.** [TESTING.md](docs/TESTING.md), about fifteen minutes. [COMPATIBILITY.md](docs/COMPATIBILITY.md) records results per platform, always with the commit that was tested.
 
 ## Lessons that cost real time

@@ -69,7 +69,7 @@ Building from source is a fully supported way to play. It needs:
 
 ## Getting started
 
-In short:
+In short (clone with `git clone --recursive`, or run `git submodule update --init` afterwards: the framework is a submodule):
 
 1. Prepare the game's executable from your disc image: build `Yakumo` once without recompiled code and run it with `--install /path/to/image.iso`. No external decryption tool is needed. Then link the image and that executable into the profile with `profiles/mhp3rd/scripts/prepare_game.sh`.
 2. Configure, generate the recompiled code with `profiles/mhp3rd/scripts/generate.sh`, and build `Yakumo`.
@@ -95,34 +95,32 @@ The executable is analyzed and every instruction of its code is emitted as C++, 
 
 Around that code sits a reimplementation of the PSP system: a kernel with threads, semaphores, event flags and timers; disc I/O read straight from the image; a Vulkan renderer for the PSP's graphics engine; software voice mixing for audio; and input from SDL3.
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the execution model and [`docs/DATA_BIN.md`](docs/DATA_BIN.md) the game's archive format. [`docs/TESTING.md`](docs/TESTING.md) has the smoke test and how to report results.
+PortableKit's [`docs/ARCHITECTURE.md`](portablekit/docs/ARCHITECTURE.md) describes the execution model and [`docs/DATA_BIN.md`](docs/DATA_BIN.md) the game's archive format. [`docs/TESTING.md`](docs/TESTING.md) has the smoke test and how to report results.
 
 ## Repository layout
 
 ```text
-include/psprecomp/   Framework interfaces: runtime, memory, Allegrex state
-src/                 Framework: ELF loading, decoder, runtime, interpreter
-tools/               Framework: analyzer and C++ code generator
-tests/               Framework regression tests
-configs/             PSP NID data and generic examples
-profiles/mhp3rd/     Everything specific to this game: host, kernel, renderer,
-                     audio, input, configuration and build scripts
-docs/                Architecture, archive format, profile guide, source rules
+portablekit/         PortableKit, a submodule: the recompiler, the runtime and the
+                     PSP system (kernel, HLE, renderer, audio, input, save data,
+                     ad hoc, interface, installer)
+profiles/mhp3rd/     Everything specific to this game: its profile, the drivers for
+                     its camera and its view, configuration, build and release scripts
+docs/                Building, testing, compatibility, releases, archive format
 ```
 
 The recompiled code itself is generated locally from your copy of the game and is never committed.
 
 ## Built on PSPRecomp
 
-**Yakumo** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. The framework is game-neutral and can be built on its own:
+**Yakumo** is built on [PSPRecomp](https://github.com/jessicanataliagta/PSPRecomp), a static recompilation framework for PSP software. Its recompiler, runtime and the whole PSP system around them now form [PortableKit](https://github.com/TeamGDB/PortableKit), which this repository includes as the `portablekit` submodule; Yakumo is a profile on top of it. PortableKit is game-neutral and can be built on its own:
 
 ```bash
-cmake -S . -B out/framework -DPSPRECOMP_PROFILE=""
+cmake -S portablekit -B out/framework
 cmake --build out/framework --config Release
 ctest --test-dir out/framework -C Release --output-on-failure
 ```
 
-To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
+To target another title, see PortableKit's [`docs/PROFILE_GUIDE.md`](portablekit/docs/PROFILE_GUIDE.md). [`docs/SOURCE_PROVENANCE.md`](docs/SOURCE_PROVENANCE.md) sets out the rules for independently written code and third-party source.
 
 ## Authors
 
@@ -141,4 +139,4 @@ To target another title, see [`docs/PROFILE_GUIDE.md`](docs/PROFILE_GUIDE.md). [
 
 ## License
 
-The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them — currently `profiles/mhp3rd/third_party/stb_truetype.h`, under MIT or public domain.
+The repository is distributed under the MIT License; see [`LICENSE`](LICENSE). Third-party files keep their own notices beside them; none are in this repository itself now, and PortableKit lists its own in [`docs/SOURCE_PROVENANCE.md`](portablekit/docs/SOURCE_PROVENANCE.md).
