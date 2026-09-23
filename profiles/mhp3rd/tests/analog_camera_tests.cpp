@@ -13,7 +13,7 @@
 #include <iostream>
 #include <vector>
 
-namespace mhp3rd::settings {
+namespace portablekit::settings {
 Settings &current() {
     static Settings settings;
     return settings;
@@ -22,6 +22,7 @@ Settings &current() {
 
 namespace {
 using namespace mhp3rd::camera;
+using namespace portablekit::camera;
 constexpr float frame_seconds = 1.0f / 30.0f;
 constexpr std::uint32_t helper = 0x08878B70u;
 constexpr std::uint32_t return_pc = 0x088E626Cu;
@@ -54,9 +55,9 @@ struct Fixture {
     psprecomp::Runtime runtime;
     psprecomp::AllegrexContext ctx{};
     Fixture() {
-        mhp3rd::settings::current() = {};
+        portablekit::settings::current() = {};
         // Each test turns the option on itself, to see what changes.
-        mhp3rd::settings::current().analog_camera = false;
+        portablekit::settings::current().analog_camera = false;
         runtime.register_generated_unit(29u, 0x08878000u, 0x4000u, &original, nullptr);
         runtime.register_function(helper, &original, "recomp_unit_test");
         auto &memory = runtime.memory();
@@ -100,7 +101,7 @@ struct Fixture {
         return {p, p + 0x2100u};
     }
     void enable() {
-        auto &s = mhp3rd::settings::current();
+        auto &s = portablekit::settings::current();
         s.analog_camera = true;
         s.camera_speed = 90.0f;
     }
@@ -166,16 +167,16 @@ void test_ownership() {
     check(baseline(), "physical D-pad vertical command takes priority");
     f.runtime.memory().store16(camera_address + 0x84u, 0u);
     f.frame(0.0f, 1.0f);
-    mhp3rd::settings::current().analog_camera = false;
+    portablekit::settings::current().analog_camera = false;
     f.frame(0.0f, 0.0f);
     check(baseline() && !game_camera_driving(), "Off restores the stock preset and input");
-    mhp3rd::settings::current().analog_camera = true;
+    portablekit::settings::current().analog_camera = true;
     f.frame(0.0f, 1.0f);
     for (int i = 0; i < 3; ++i) f.flip(0.0f, 0.0f);
     check(!game_camera_driving(), "leaving the camera releases input ownership");
     f.frame(0.0f, 0.0f);
     check(baseline(), "returning after a scene change discards stale pitch");
-    mhp3rd::settings::current().right_stick = mhp3rd::settings::RightStick::DPad;
+    portablekit::settings::current().right_stick = portablekit::settings::RightStick::DPad;
     const auto before = f.snapshot();
     f.frame(1.0f, 1.0f);
     check(before == f.snapshot() && !game_camera_driving(), "D-pad mapping disables analog integration");
@@ -267,9 +268,9 @@ void test_motion_source() {
     check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
           "motion is not repeated on the next update");
     add_motion(Source::Mouse, 10.0f, 0.0f);
-    mhp3rd::settings::current().analog_camera = false;
+    portablekit::settings::current().analog_camera = false;
     f.frame(0.0f, 0.0f);
-    mhp3rd::settings::current().analog_camera = true;
+    portablekit::settings::current().analog_camera = true;
     f.frame(0.0f, 0.0f);
     check(static_cast<int>(start) - static_cast<int>(f.runtime.memory().load16(camera_address + 0x80u)) == turned,
           "motion made while the camera is not driven is dropped");
@@ -315,7 +316,7 @@ void test_aiming_sizes_the_games_steps() {
     m.store8(camera_address + 0x91u, 0u);  // the weapon reports an aim
     f.reset_offset();
     const auto camera_before = f.snapshot();
-    mhp3rd::settings::current().aim_speed = 60.0f;
+    portablekit::settings::current().aim_speed = 60.0f;
     aim_frame(0.0f, 0.0f);  // learns where the aim starts; picks up Aim speed
     check(game_camera_aim_boost() && !game_camera_driving(), "aiming sends the stretched stick to the game");
 
@@ -359,13 +360,13 @@ void test_aiming_sizes_the_games_steps() {
     const int down = static_cast<std::int16_t>(m.load16(hunter + 0xC24u));
     check(std::abs(down + 12 * 64) <= 64, "the halfword vertical aim is sized alike");
 
-    mhp3rd::settings::current().analog_camera = false;
+    portablekit::settings::current().analog_camera = false;
     game.yaw_step = 624;
     const auto before_off = m.load16(hunter + 0x188u);
     aim_frame(0.2f, 0.0f);
     check(!game_camera_aim_boost() && m.load16(hunter + 0x188u) == static_cast<std::uint16_t>(before_off + 624),
           "with the option off the game's aim is untouched");
-    mhp3rd::settings::current().analog_camera = true;
+    portablekit::settings::current().analog_camera = true;
     m.store8(camera_address + 0x91u, 0xFFu);
     f.frame(0.0f, 0.0f);
     f.frame(1.0f, 0.0f);

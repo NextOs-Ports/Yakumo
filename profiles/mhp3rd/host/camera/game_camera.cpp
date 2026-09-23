@@ -14,6 +14,11 @@
 #include <iostream>
 
 namespace mhp3rd::camera {
+// The camera input and the settings are PortableKit's; this driver is the
+// game's.
+using namespace portablekit::camera;
+namespace settings = portablekit::settings;
+
 namespace {
 
 // NPJB-40001: the ordinary camera update calls the rotation helper at
