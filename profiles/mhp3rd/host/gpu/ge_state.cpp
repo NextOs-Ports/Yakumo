@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iostream>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace mhp3rd::gpu {
@@ -1045,13 +1046,81 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
                            primitive == PrimitiveType::TriangleFan;
     const bool one_morph = ((vertex_type_ >> 18u) & 7u) == 0u;
     const bool positioned = ((vertex_type_ >> 7u) & 3u) != 0u;
-    if (raw_vertices_ && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
+    // MHP3RD_GPU_DECODE_SKIP (debugging): draws of the named kinds are
+    // decoded on the CPU even with GPU vertex decode on: w weighted, c
+    // coloured, n with normals, t textured, i indexed, s strips and fans,
+    // 1/2/3 with 8-bit/16-bit/float positions, b more than 4 weights.
+    static const std::string skip_kinds = [] {
+        const char *text = std::getenv("MHP3RD_GPU_DECODE_SKIP");
+        return std::string(text != nullptr ? text : "");
+    }();
+    bool skip_raw = false;
+    if (!skip_kinds.empty() && skip_kinds[0] != 'v' && skip_kinds[0] != 'o') {
+        const auto has = [&](char kind) { return skip_kinds.find(kind) != std::string::npos; };
+        const std::uint32_t position_kind = (vertex_type_ >> 7u) & 3u;
+        skip_raw = (has('w') && ((vertex_type_ >> 9u) & 3u) != 0u) || (has('c') && ((vertex_type_ >> 2u) & 7u) != 0u) ||
+                   (has('n') && ((vertex_type_ >> 5u) & 3u) != 0u) || (has('t') && (vertex_type_ & 3u) != 0u) ||
+                   (has('i') && index_type != 0u) || (has('s') && primitive != PrimitiveType::Triangles) ||
+                   (has('1') && position_kind == 1u) || (has('2') && position_kind == 2u) ||
+                   (has('3') && position_kind == 3u) || (has('b') && ((vertex_type_ >> 14u) & 7u) >= 4u);
+    } else if (!skip_kinds.empty()) {
+        // v<hex>: that vertex type; o<hex>: every type but that one.
+        const bool named = std::strtoul(skip_kinds.c_str() + 1, nullptr, 16) == vertex_type_;
+        skip_raw = skip_kinds[0] == 'v' ? named : !named;
+    }
+    if (raw_vertices_ && !skip_raw && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
         call.raw_vertices = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
         if (call.raw_vertices != nullptr) {
             call.raw_count = vertex_count;
             call.raw_stride = probe;
             call.bone_matrices = bone_matrices_.data();
             stride = probe;
+            // MHP3RD_TRACE_RAW_DRAWS (debugging): each new combination of a
+            // raw draw's format, stride, index type and primitive, and each
+            // new largest vertex or index count.
+            if (static const bool trace = std::getenv("MHP3RD_TRACE_RAW_DRAWS") != nullptr; trace) {
+                static std::map<std::array<std::uint32_t, 4>, std::uint32_t> seen;
+                static std::uint32_t most_vertices = 0u, most_indices = 0u;
+                const std::array<std::uint32_t, 4> key{vertex_type_, probe, index_type,
+                                                       static_cast<std::uint32_t>(primitive)};
+                const bool fresh = seen.emplace(key, 0u).second;
+                if (fresh || vertex_count > most_vertices || count > most_indices) {
+                    most_vertices = std::max(most_vertices, vertex_count);
+                    most_indices = std::max(most_indices, count);
+                    std::cout << "[raw-draw] vtype=0x" << std::hex << vertex_type_ << std::dec << " stride=" << probe
+                              << " itype=" << index_type << " prim=" << static_cast<std::uint32_t>(primitive)
+                              << " count=" << count << " verts=" << vertex_count << " first=" << first_vertex
+                              << (fresh ? " new" : " max") << std::endl;
+                }
+                // MHP3RD_TRACE_RAW_DRAWS=<hex type>: the first 40 draws of that
+                // type in full.
+                static const std::uint32_t dump_type =
+                    static_cast<std::uint32_t>(std::strtoul(std::getenv("MHP3RD_TRACE_RAW_DRAWS"), nullptr, 16));
+                static std::uint32_t dumped = 0u;
+                if (vertex_type_ == dump_type && dumped < 40u) {
+                    ++dumped;
+                    std::vector<Vertex> decoded;
+                    decode_vertices(memory, first_address, vertex_type_, vertex_count, decoded, bone_matrices_.data());
+                    std::cout << "[raw-dump] vtype=0x" << std::hex << vertex_type_ << std::dec << " prim="
+                              << static_cast<std::uint32_t>(primitive) << " count=" << count << " verts=" << vertex_count
+                              << " tex=" << texture_.enabled << " " << texture_.width << "x" << texture_.height
+                              << " fmt=" << static_cast<int>(texture_.format) << " blend=" << blend_.enabled
+                              << " alpha_test=" << alpha_test_.enabled << " lit=" << lighting_enabled_
+                              << " depth=" << depth_.test_enabled << " cull=" << culling_enabled_ << " bytes:";
+                    for (std::uint32_t b = 0; b < std::min<std::uint32_t>(probe * vertex_count, 64u); ++b)
+                        std::cout << (b % probe == 0u ? " |" : " ") << static_cast<int>(call.raw_vertices[b]);
+                    std::cout << "\n  bone0:";
+                    for (std::uint32_t k = 0; k < 12u; ++k) std::cout << " " << bone_matrices_[k];
+                    std::cout << "\n  indices:";
+                    for (std::size_t k = 0; k < std::min<std::size_t>(call.indices.size(), 32u); ++k)
+                        std::cout << " " << call.indices[k];
+                    for (std::size_t v = 0; v < std::min<std::size_t>(decoded.size(), 6u); ++v)
+                        std::cout << "\n  v" << v << " pos=(" << decoded[v].position[0] << "," << decoded[v].position[1]
+                                  << "," << decoded[v].position[2] << ") uv=(" << decoded[v].texcoord[0] << ","
+                                  << decoded[v].texcoord[1] << ") col=0x" << std::hex << decoded[v].color << std::dec;
+                    std::cout << std::endl;
+                }
+            }
         }
     }
     if (call.raw_vertices == nullptr || raw_also_decoded_)

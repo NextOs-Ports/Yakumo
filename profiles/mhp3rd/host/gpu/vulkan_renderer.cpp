@@ -5818,7 +5818,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }
             block.extra[1] = check_slot;
         }
-        if (impl.check_gpu_decode || !impl.raw_valid || bytes != impl.last_raw_bytes ||
+        static const bool no_raw_reuse = std::getenv("MHP3RD_NO_RAW_REUSE") != nullptr;
+        if (impl.check_gpu_decode || no_raw_reuse || !impl.raw_valid || bytes != impl.last_raw_bytes ||
             std::memcmp(&block, &impl.last_raw, bytes) != 0) {
             if (!impl.write_uniform(&block, bytes, impl.raw_offset)) return;
             impl.last_raw = block;
@@ -6949,6 +6950,10 @@ void VulkanRenderer::Impl::replay(VkCommandBuffer commands, std::uint32_t slot, 
                     RawBlock blended = a;
                     for (std::size_t i = 0; i < blended.bones.size(); ++i)
                         blended.bones[i] += (b.bones[i] - blended.bones[i]) * t;
+                    // MHP3RD_CHECK_GPU_DECODE: the blended vertices go past the
+                    // compared part, not over the frame's own that the check
+                    // has yet to read.
+                    if (check_gpu_decode) blended.extra[1] = 3u * Impl::kCheckVertices * 3u;
                     const VkDeviceSize at =
                         (scratch_at + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
                     if (at + sizeof(RawBlock) <= scratch_end) {
