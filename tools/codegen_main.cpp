@@ -12,6 +12,7 @@
 #include <charconv>
 #include <filesystem>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 #include <fstream>
 #include <iostream>
@@ -895,6 +896,24 @@ std::string generated_unit_cpp_entry_name(std::uint32_t unit) {
     return generated_unit_cpp_name(unit) + "_entry";
 }
 
+// The unit's view of guest RAM (GuestMemory::AotFastView). A unit is handed
+// its caller's view by reference and passes the same one on to the units it
+// chains into. Guest stores are byte stores, which the compiler must assume
+// can reach anything reachable through a pointer, the caller's view
+// included, so every access used to load the RAM base, its limit and the
+// write-watch flag again after the previous store. Each unit now works on a
+// local copy that nothing else can reach, which keeps them in registers;
+// the view never changes while guest code runs, so the copy is exact.
+// PSPRECOMP_CODEGEN_SHARED_VIEW=1 emits the old form, for A/B builds.
+bool shared_view_only() {
+    static const bool value = std::getenv("PSPRECOMP_CODEGEN_SHARED_VIEW") != nullptr;
+    return value;
+}
+std::string shared_view_name() { return shared_view_only() ? "aot_mem" : "aot_shared"; }
+std::string local_view_declaration() {
+    return shared_view_only() ? "" : "    GuestMemory::AotFastView aot_mem = aot_shared;\n";
+}
+
 std::string direct_unit_chain_expression(
     std::uint32_t unit, std::uint32_t target,
     const std::map<std::uint32_t, std::uint16_t> *direct_entry_ids) {
@@ -903,11 +922,11 @@ std::string direct_unit_chain_expression(
         if (found != direct_entry_ids->end() && found->second != 0u) {
             return "rt.invoke_chained_direct<&" + generated_unit_cpp_entry_name(unit) + ", " +
                 std::to_string(unit) + "u, " + std::to_string(found->second) + "u, " +
-                psprecomp::hex32(target) + "u>(ctx, &aot_mem)";
+                psprecomp::hex32(target) + "u>(ctx, &" + shared_view_name() + ")";
         }
     }
     return "rt.invoke_chained_direct<&" + generated_unit_cpp_name(unit) + ", " +
-        std::to_string(unit) + "u>(ctx, &aot_mem)";
+        std::to_string(unit) + "u>(ctx, &" + shared_view_name() + ")";
 }
 
 void emit_target(std::ostringstream &body, std::uint32_t target,
@@ -948,7 +967,7 @@ void emit_target(std::ostringstream &body, std::uint32_t target,
              << "; return;\n";
     } else {
         body << indent << "ctx.pc = " << psprecomp::hex32(target)
-             << "u; (void)rt.invoke_chained_call(ctx, &aot_mem); return;\n";
+             << "u; (void)rt.invoke_chained_call(ctx, &" << shared_view_name() << "); return;\n";
     }
 }
 
@@ -1000,7 +1019,8 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
         }
         body << "\n};\n";
 
-        body << "void " << cpp_name << "_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {\n"
+        body << "void " << cpp_name << "_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &"
+             << shared_view_name() << ") {\n" << local_view_declaration()
              << "    std::uint32_t jump_target = 0u;\n"
              << "    std::uint32_t local_transfers = 0u;\n"
              << "    std::uint32_t local_pc = ctx.pc;\n"
@@ -1031,7 +1051,8 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
              << "    }\n"
              << "    }\n";
     } else {
-        body << "void " << cpp_name << "_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {\n"
+        body << "void " << cpp_name << "_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &"
+             << shared_view_name() << ") {\n" << local_view_declaration()
              << "    (void)direct_entry_id;\n"
              << "    std::uint32_t jump_target = 0u;\n"
              << "    std::uint32_t local_transfers = 0u;\n"
@@ -1140,14 +1161,14 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
                             if (direct_unit)
                                 body << direct_unit_chain_expression(target_unit, target, function.direct_entry_ids);
                             else
-                                body << "rt.invoke_chained_call(ctx, &aot_mem)";
+                                body << "rt.invoke_chained_call(ctx, &" << shared_view_name() << ")";
                             body << " && ctx.pc == " << psprecomp::hex32(return_pc)
                                  << "u) goto L_" << psprecomp::hex32(return_pc).substr(2) << ";\n";
                         } else {
                             if (direct_unit)
                                 body << "    (void)" << direct_unit_chain_expression(target_unit, target, function.direct_entry_ids) << ";\n";
                             else
-                                body << "    (void)rt.invoke_chained_call(ctx, &aot_mem);\n";
+                                body << "    (void)rt.invoke_chained_call(ctx, &" << shared_view_name() << ");\n";
                         }
                         body << "    return;\n";
                     }
@@ -1165,11 +1186,11 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
                         const std::uint32_t return_pc = pc + 8u;
                         body << "    ctx.pc = jump_target;\n";
                         if (function.entry_labels.contains(return_pc)) {
-                            body << "    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == "
+                            body << "    if (rt.invoke_chained_call(ctx, &" << shared_view_name() << ") && ctx.pc == "
                                  << psprecomp::hex32(return_pc) << "u) goto L_"
                                  << psprecomp::hex32(return_pc).substr(2) << ";\n";
                         } else {
-                            body << "    (void)rt.invoke_chained_call(ctx, &aot_mem);\n";
+                            body << "    (void)rt.invoke_chained_call(ctx, &" << shared_view_name() << ");\n";
                         }
                         body << "    return;\n";
                     } else {

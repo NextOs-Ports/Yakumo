@@ -950,13 +950,17 @@ static void test_automatic_cross_unit_tail_chaining() {
         std::ifstream generated(generated_dir / "generated_unit_0000.cpp");
         text.assign((std::istreambuf_iterator<char>(generated)), std::istreambuf_iterator<char>());
     }
-    require(text.find("(void)rt.invoke_chained_direct<&recomp_unit_0001_entry, 1u, 1u, 0x08804040u>(ctx, &aot_mem); return;") != std::string::npos,
+    require(text.find("(void)rt.invoke_chained_direct<&recomp_unit_0001_entry, 1u, 1u, 0x08804040u>(ctx, &aot_shared); return;") != std::string::npos,
             "Automatic codegen did not emit a direct-entry native chain across AOT units");
     require(text.find("ctx.pc = 0x08804040u; (void)rt.invoke_chained_direct") == std::string::npos,
             "Direct-entry chain still dirties ctx.pc on its successful hot path");
-    require(text.find("GuestMemory::AotFastView &aot_mem)") != std::string::npos &&
+    require(text.find("GuestMemory::AotFastView &aot_shared)") != std::string::npos &&
             text.find("_entry(rt, ctx, 0u, aot_mem)") != std::string::npos,
             "Shared AOT memory was not threaded across generated-unit direct chains");
+    // Each unit reads guest RAM through a local copy of the shared view, which
+    // guest stores cannot alias, so its base and limits stay in registers.
+    require(text.find("    GuestMemory::AotFastView aot_mem = aot_shared;\n") != std::string::npos,
+            "Generated unit does not work on a local copy of the shared AOT memory view");
     // The register-cache lowering passes were removed: generated units must
     // address AllegrexContext directly rather than a second long-lived cache
     // object, which is what made MSVC's optimizer non-convergent on this corpus.
