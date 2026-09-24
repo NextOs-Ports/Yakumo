@@ -1068,6 +1068,11 @@ void GeState::draw_primitive(const GuestMemory &memory, std::uint32_t data) {
         const bool named = std::strtoul(skip_kinds.c_str() + 1, nullptr, 16) == vertex_type_;
         skip_raw = skip_kinds[0] == 'v' ? named : !named;
     }
+    // MHP3RD_GPU_DECODE_SKIP_COUNT=N (debugging): draws of N vertices (their
+    // index count when indexed) decoded on the CPU.
+    static const long skip_count =
+        std::getenv("MHP3RD_GPU_DECODE_SKIP_COUNT") ? std::atol(std::getenv("MHP3RD_GPU_DECODE_SKIP_COUNT")) : -1;
+    if (skip_count >= 0 && static_cast<long>(count) == skip_count) skip_raw = true;
     if (raw_vertices_ && !skip_raw && !call.through && triangles && one_morph && positioned && vertex_count != 0u) {
         call.raw_vertices = memory.raw_pointer(first_address, static_cast<std::size_t>(probe) * vertex_count);
         if (call.raw_vertices != nullptr) {

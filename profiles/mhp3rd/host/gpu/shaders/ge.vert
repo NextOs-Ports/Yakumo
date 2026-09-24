@@ -66,13 +66,20 @@ vec4 unpack_rgba8(uint value) { return unpackUnorm4x8(value); }
 void decode_raw_vertex() {
     const uint stride = raw.format.x;
     const uint type = raw.format.y;
-    const uint base = uint(gl_InstanceIndex) + uint(gl_VertexIndex) * stride;
+    // extra.w (MHP3RD_RAW_BASE_UBO, debugging): the bytes' start, instead of
+    // the first instance.
+    const uint base = (raw.extra.w != 0u ? raw.extra.w : uint(gl_InstanceIndex)) + uint(gl_VertexIndex) * stride;
     const uint texcoord_type = type & 3u;
     const uint color_type = (type >> 2u) & 7u;
     const uint normal_type = (type >> 5u) & 3u;
     const uint position_type = (type >> 7u) & 3u;
     const uint weight_type = (type >> 9u) & 3u;
     const uint weight_count = ((type >> 14u) & 7u) + 1u;
+    // MHP3RD_RAW_PROBE (debugging): also read the word before (1) or after
+    // (2) the vertex's bytes.
+    bool probed = false;
+    if (raw.extra.z == 1u && raw_word(base - 4u) == 0x9E3779B9u) probed = true;
+    if (raw.extra.z == 2u && raw_word(base + stride + 2u) == 0x9E3779B9u) probed = true;
 
     in_texcoord = vec2(0.0);
     if (texcoord_type != 0u) {
@@ -146,6 +153,7 @@ void decode_raw_vertex() {
         in_position.xyz = position;
         in_normal = normal;
     }
+    if (probed) in_color.r = 0.5;
 #ifdef GE_CHECK_DECODE
     const uint slot = raw.extra.y + uint(gl_VertexIndex) * 3u;
     check_out[slot] = vec4(in_position.xyz, in_texcoord.x);

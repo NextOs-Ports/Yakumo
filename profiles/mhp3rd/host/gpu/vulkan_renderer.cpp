@@ -721,7 +721,7 @@ struct VulkanRenderer::Impl {
         volatile std::uint32_t *mapped{};
         PFN_vkCmdWriteBufferMarkerAMD write{};
         std::uint32_t next{};
-        std::array<std::string, 1024> labels;  // by marker number, modulo the size
+        std::array<std::string, 65536> labels;  // by marker number, modulo the size
     } breadcrumbs;
     void breadcrumb(VkCommandBuffer commands, const std::string &label) {
         Breadcrumbs &b = breadcrumbs;
@@ -750,8 +750,32 @@ struct VulkanRenderer::Impl {
         std::cout << std::flush;
         std::_Exit(3);
     }
+    void print_breadcrumbs() {
+        Breadcrumbs &b = breadcrumbs;
+        if (b.mapped == nullptr) return;
+        const std::uint32_t reached = b.mapped[0];
+        const std::uint32_t finished = b.mapped[1];
+        std::cout << "[render] breadcrumbs: last finished " << finished << " "
+                  << b.labels[finished % b.labels.size()] << "; last reached " << reached << " "
+                  << b.labels[reached % b.labels.size()] << "; last recorded " << b.next << "\n";
+        const std::uint32_t first = finished > 8u ? finished - 8u : 1u;
+        for (std::uint32_t id = first; id <= std::min(b.next, finished + 24u); ++id)
+            std::cout << "[render]   " << id << (id <= finished ? " done " : id <= reached ? " busy " : " queued ")
+                      << b.labels[id % b.labels.size()] << "\n";
+        std::cout << std::flush;
+    }
     void wait_fence(VkFence fence, const char *where) {
-        const VkResult result = vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
+        VkResult result = VK_TIMEOUT;
+        if (breadcrumbs.mapped != nullptr) {
+            // A hang the driver does not report as a lost device: the
+            // breadcrumbs after two seconds.
+            result = vkWaitForFences(device, 1u, &fence, VK_TRUE, 2'000'000'000ull);
+            if (result == VK_TIMEOUT) {
+                std::cout << "[render] waited 2 s for the GPU in " << where << "\n";
+                print_breadcrumbs();
+            }
+        }
+        if (result == VK_TIMEOUT) result = vkWaitForFences(device, 1u, &fence, VK_TRUE, UINT64_MAX);
         if (result == VK_ERROR_DEVICE_LOST) device_lost(where);
     }
     VkPresentModeKHR present_mode{VK_PRESENT_MODE_FIFO_KHR};
@@ -1153,6 +1177,9 @@ struct VulkanRenderer::Impl {
     // shader decodes and skins them.
     bool gpu_decode_available{};
     bool check_gpu_decode{};  // MHP3RD_CHECK_GPU_DECODE
+    bool check_shader_only{}; // MHP3RD_RAW_CHECK_SHADER
+    std::uint32_t next_check_slot{};
+    std::uint64_t check_dropped{};
     std::uint32_t raw_offset{};  // the raw block most recently written this frame
     RawBlock last_raw{};
     std::size_t last_raw_bytes{};
@@ -1170,6 +1197,8 @@ struct VulkanRenderer::Impl {
         std::uint64_t exact{};
         std::uint64_t close{};
         std::uint64_t differed{};
+        std::uint64_t joined_vertices{};
+        std::uint64_t joined_differed{};
         double max_error{};
         std::array<std::array<std::uint64_t, 12>, 2> fields{};  // inexact values by kind (unskinned, skinned) and field
     } check_tally;
@@ -1266,8 +1295,15 @@ struct VulkanRenderer::Impl {
 
     // Copies a uniform block into the vertex buffer at the next aligned offset.
     // Returns false, writing nothing, when the buffer is full.
+    // MHP3RD_TRACE_RAW_LAYOUT (debugging): what was last written into the
+    // vertex buffer, and where it ends.
+    const char *last_writer{"none"};
+    VkDeviceSize last_writer_end{};
+    std::uint32_t readbacks{};
     bool write_uniform(const void *data, std::size_t size, std::uint32_t &offset) {
         const VkDeviceSize at = (vertex_offset + uniform_alignment - 1u) / uniform_alignment * uniform_alignment;
+        last_writer = size == 496u ? "env" : (size < 544u && size >= 32u && (size - 32u) % 64u == 0u ? "rawblock" : "object");
+        last_writer_end = at + size;
         if (at + size > vertex_limit) {
             report_frame_space_full("vertex");
             return false;
@@ -1311,6 +1347,8 @@ struct VulkanRenderer::Impl {
         std::uint32_t draws{};
         bool raw{};                  // the guest's vertex bytes, decoded on the GPU
         std::uint32_t stride{};      // of a raw group's vertices
+        std::uint32_t vertex_type{}; // MHP3RD_GPU_BREADCRUMBS: the first draw's
+        bool base_in_block{};        // MHP3RD_RAW_BASE_UBO
     };
     DrawGroup group{};
     bool group_skinned{};  // the open group is of skinned draws recorded for drawing again
@@ -1323,12 +1361,23 @@ struct VulkanRenderer::Impl {
         if (!group.open) return;
         const perf::SplitScope split(perf::Split::Record);
         group.open = false;
-        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer, &group.vertex_base);
+        // MHP3RD_RAW_VB0 (debugging): a raw group binds no vertex buffer offset.
+        static const bool raw_vb0 = std::getenv("MHP3RD_RAW_VB0") != nullptr;
+        const VkDeviceSize zero = 0u;
+        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &vertex_buffer,
+                               raw_vb0 && group.raw ? &zero : &group.vertex_base);
         vkCmdBindIndexBuffer(command_buffer, index_buffer, group.index_base, VK_INDEX_TYPE_UINT16);
         // A raw group finds its bytes at its first instance (ge.vert).
         vkCmdDrawIndexed(command_buffer, group.index_count, 1u, 0u, 0,
-                         group.raw ? static_cast<std::uint32_t>(group.vertex_base) : 0u);
+                         group.raw && !group.base_in_block ? static_cast<std::uint32_t>(group.vertex_base) : 0u);
         perf::count_recorded_draws(1u);
+        if (breadcrumbs.write != nullptr)
+            breadcrumb(command_buffer, std::string(group.raw ? "raw" : "cooked") + " group vtype=0x" +
+                                           [&] { char t[16]; std::snprintf(t, sizeof t, "%x", group.vertex_type); return std::string(t); }() +
+                                           " base=" + std::to_string(group.vertex_base) + " end=" +
+                                           std::to_string(group.vertex_end) + " indices=" +
+                                           std::to_string(group.index_count) + " at " + std::to_string(group.index_base) +
+                                           " draws=" + std::to_string(group.draws) + " stride=" + std::to_string(group.stride));
     }
     // Sets what differs between `state` and what is recorded already.
     void record_state(const DrawState &state) {
@@ -1346,7 +1395,8 @@ struct VulkanRenderer::Impl {
         if (!state_known || state.texture != recorded.texture)
             vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 0u, 1u,
                                     &state.texture, 0u, nullptr);
-        if (!lighting_bound || state.lighting != bound_lighting_offsets) {
+        static const bool raw_rebind = std::getenv("MHP3RD_RAW_REBIND") != nullptr;
+        if (!lighting_bound || state.lighting != bound_lighting_offsets || raw_rebind) {
             vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout, 1u, 1u,
                                     &lighting_descriptor, static_cast<std::uint32_t>(state.lighting.size()),
                                     state.lighting.data());
@@ -1916,6 +1966,7 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
     for (const CheckDraw &draw : frame.checks) {
         ++tally.draws;
         const bool skinned = ((draw.vertex_type >> 9u) & 3u) != 0u;
+        const bool joined_draw = (draw.vertex_type & 0x80000000u) != 0u;
         for (std::uint32_t v = 0; v < draw.count; ++v) {
             if (frame.check_drawn[draw.first + v] == 0u) continue;
             const float *got = out + (static_cast<std::size_t>(draw.slot) + v * 3u) * 4u;
@@ -1945,6 +1996,8 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
                 worst = std::max(worst, error);
             }
             ++tally.vertices;
+            if (joined_draw) ++tally.joined_vertices;
+            if (joined_draw && !exact && worst > 1e-5) ++tally.joined_differed;
             if (exact) {
                 ++tally.exact;
             } else if (worst <= (skinned ? 1e-5 : 1e-6)) {
@@ -1967,7 +2020,8 @@ void VulkanRenderer::Impl::compare_gpu_decode(std::uint32_t from) {
     if (tally.draws != 0u && frames % 300u == 0u)
         std::cout << "[gpu-decode-check] " << tally.draws << " draws, " << tally.vertices << " vertices: "
                   << tally.exact << " exact, " << tally.close << " within rounding (largest " << tally.max_error
-                  << "), " << tally.differed << " differed" << std::endl;
+                  << "), " << tally.differed << " differed, " << check_dropped << " not compared; joined "
+                  << tally.joined_vertices << " vertices, " << tally.joined_differed << " differed" << std::endl;
     if (tally.draws != 0u && frames % 300u == 0u) {
         // Inexact values of unskinned and skinned vertices, by field: x y z u
         // nx ny nz v r g b a.
@@ -2160,10 +2214,14 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
     VkPhysicalDeviceFeatures supported_features{};
     vkGetPhysicalDeviceFeatures(impl.physical_device, &supported_features);
     VkPhysicalDeviceFeatures enabled_features{};
-    if (std::getenv("MHP3RD_CHECK_GPU_DECODE") != nullptr) {
+    // MHP3RD_RAW_CHECK_SHADER (debugging): the check build of the shader
+    // with everything else as without the check.
+    const bool check_shader_only = std::getenv("MHP3RD_RAW_CHECK_SHADER") != nullptr;
+    if (std::getenv("MHP3RD_CHECK_GPU_DECODE") != nullptr || check_shader_only) {
         if (supported_features.vertexPipelineStoresAndAtomics == VK_TRUE) {
             enabled_features.vertexPipelineStoresAndAtomics = VK_TRUE;
-            impl.check_gpu_decode = true;
+            impl.check_gpu_decode = !check_shader_only;
+            impl.check_shader_only = check_shader_only;
         } else {
             std::cout << "[render] MHP3RD_CHECK_GPU_DECODE needs vertexPipelineStoresAndAtomics, which this device "
                          "lacks\n";
@@ -2290,7 +2348,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         return check(vkCreateShaderModule(impl.device, &info, nullptr, &module), "vkCreateShaderModule", error);
     };
     if (!create_shader(kGeVertexShader, sizeof(kGeVertexShader), impl.vertex_shader)) return false;
-    if (impl.check_gpu_decode) {
+    if (impl.check_gpu_decode || impl.check_shader_only) {
         if (!create_shader(kGeCheckVertexShader, sizeof(kGeCheckVertexShader), impl.raw_vertex_shader)) return false;
     } else if (!create_shader(kGeRawVertexShader, sizeof(kGeRawVertexShader), impl.raw_vertex_shader)) {
         return false;
@@ -2506,7 +2564,7 @@ bool VulkanRenderer::initialize(const RendererConfig &config, std::string &error
         // The vertex buffer read as words must fit the storage range every
         // device offers at least (2^27 bytes); GPU vertex decode needs it.
         impl.gpu_decode_available = kVertexBufferTotal <= device_properties.limits.maxStorageBufferRange;
-        if (impl.check_gpu_decode) {
+        if (impl.check_gpu_decode || impl.check_shader_only) {
             // Two frame slots' worth, each with room past the compared part
             // for draws beyond it to write into.
             const VkDeviceSize bytes = 2u * 2u * Impl::kCheckVertices * 3u * 16u;
@@ -3151,6 +3209,7 @@ void VulkanRenderer::Impl::submit_and_present(VkCommandBuffer commands, VkFence 
         check_swapchain();
         if (swapchain_dirty || swapchain == VK_NULL_HANDLE) recreate_swapchain();
     }
+    breadcrumb(commands, main_frame ? "the frame's present begins" : "a present begins");
     ImDrawData *ui = ui_ready ? ui_draw_data : nullptr;
     ui_draw_data = nullptr;
     const bool draw_ui = ui != nullptr && ui->CmdListsCount > 0;
@@ -3484,6 +3543,7 @@ void VulkanRenderer::Impl::end_pass() {
     if (!pass_active) return;
     vkCmdEndRenderPass(command_buffer);
     pass_active = false;
+    if (breadcrumbs.write != nullptr) breadcrumb(command_buffer, "render pass ended");
 }
 
 VulkanRenderer::Impl::Texture VulkanRenderer::Impl::create_texture(std::uint32_t width, std::uint32_t height,
@@ -5785,6 +5845,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     // its own, naming the slot its shader writes what it decoded into.
     std::uint32_t check_slot = 0u;
     bool checked = false;
+    bool check_reused = false;
+    bool base_in_block = false;
+    static const bool check_join = std::getenv("MHP3RD_CHECK_GPU_DECODE_JOIN") != nullptr;
     if (raw) {
         const VertexFormat format = vertex_format(call.vertex_type);
         const auto field = [](std::uint32_t offset) { return offset == kNoVertexField ? kRawNoField : offset; };
@@ -5795,7 +5858,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                         format.position_offset};
         // A vertex without a colour is drawn with the material colour when
         // unlit, white when lit (to_gpu).
-        block.extra = {use_material_color ? call.material_color : 0xFFFFFFFFu, 0u, 0u, 0u};
+        static const std::uint32_t raw_probe =
+            std::getenv("MHP3RD_RAW_PROBE") ? static_cast<std::uint32_t>(std::atoi(std::getenv("MHP3RD_RAW_PROBE"))) : 0u;
+        block.extra = {use_material_color ? call.material_color : 0xFFFFFFFFu, 0u, raw_probe, 0u};
         std::size_t bytes = kRawHeaderBytes;
         if (((call.vertex_type >> 9u) & 3u) != 0u && call.bone_matrices != nullptr) {
             const std::uint32_t bones = std::min<std::uint32_t>(((call.vertex_type >> 14u) & 7u) + 1u, 8u);
@@ -5817,14 +5882,36 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 check_slot = half + Impl::kCheckVertices * 3u;
             }
             block.extra[1] = check_slot;
+            // MHP3RD_CHECK_GPU_DECODE_JOIN (debugging): a draw whose slot
+            // follows the last raw draw's keeps its block, so that it can
+            // join that draw's group as it does without the check; its
+            // vertices land in its own slot through the group's indices.
+            if (check_join && checked && impl.raw_valid && check_slot == impl.next_check_slot) {
+                block.extra[1] = impl.last_raw.extra[1];
+                if (bytes != impl.last_raw_bytes || std::memcmp(&block, &impl.last_raw, bytes) != 0)
+                    block.extra[1] = check_slot;
+            }
         }
         static const bool no_raw_reuse = std::getenv("MHP3RD_NO_RAW_REUSE") != nullptr;
-        if (impl.check_gpu_decode || no_raw_reuse || !impl.raw_valid || bytes != impl.last_raw_bytes ||
-            std::memcmp(&block, &impl.last_raw, bytes) != 0) {
+        check_reused = false;
+        if ((impl.check_gpu_decode && !check_join) || no_raw_reuse || !impl.raw_valid ||
+            bytes != impl.last_raw_bytes || std::memcmp(&block, &impl.last_raw, bytes) != 0) {
             if (!impl.write_uniform(&block, bytes, impl.raw_offset)) return;
             impl.last_raw = block;
             impl.last_raw_bytes = bytes;
             impl.raw_valid = true;
+        } else {
+            check_reused = impl.check_gpu_decode;
+        }
+        if (checked) impl.next_check_slot = check_slot + call.raw_count * 3u;
+        static const bool raw_pad = std::getenv("MHP3RD_RAW_PAD") != nullptr;
+        // MHP3RD_RAW_GAP=N (debugging): N bytes left empty before a raw draw's bytes.
+        static const long raw_gap = std::getenv("MHP3RD_RAW_GAP") ? std::atol(std::getenv("MHP3RD_RAW_GAP")) : 0;
+        if (raw_gap > 0 && impl.vertex_offset + raw_gap <= impl.vertex_limit) impl.vertex_offset += raw_gap;
+        if (raw_pad) {
+            const VkDeviceSize at = (impl.vertex_offset + impl.uniform_alignment - 1u) / impl.uniform_alignment *
+                                    impl.uniform_alignment;
+            if (at + bytes <= impl.vertex_limit) impl.vertex_offset = at + bytes;
         }
         if (checked) {
             Impl::FrameSlot &frame = impl.slots[impl.slot];
@@ -5898,8 +5985,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         // before broke that for every other draw, and half the draws that
         // could have merged did not (MHP3RD_NO_TIGHT_MERGE rounds as before).
         static const bool loose_merge = std::getenv("MHP3RD_NO_TIGHT_MERGE") != nullptr;
-        if (merge && impl.group.open && impl.group.raw == raw && impl.vertex_offset == impl.group.vertex_end &&
-            (raw ? impl.group.stride == call.raw_stride && !impl.check_gpu_decode : !loose_merge))
+        static const bool raw_nojoin_start = std::getenv("MHP3RD_RAW_NOJOIN") != nullptr;
+        if (merge && !(raw && raw_nojoin_start) && impl.group.open && impl.group.raw == raw &&
+            impl.vertex_offset == impl.group.vertex_end &&
+            (raw ? impl.group.stride == call.raw_stride && (!impl.check_gpu_decode || check_join) : !loose_merge))
             vertex_start = impl.vertex_offset;
         const VkDeviceSize vertex_bytes =
             raw ? static_cast<VkDeviceSize>(call.raw_count) * call.raw_stride : call.vertices.size() * sizeof(GpuVertex);
@@ -5913,6 +6002,45 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         if (merge && impl.index_offset + 4u + impl.direct_indices.size() * sizeof(std::uint16_t) > impl.index_limit) {
             report_frame_space_full("index");
             return;
+        }
+        // MHP3RD_RAW_GAP_AFTER=N (debugging): N bytes left empty after them.
+        static const long raw_gap_after =
+            std::getenv("MHP3RD_RAW_GAP_AFTER") ? std::atol(std::getenv("MHP3RD_RAW_GAP_AFTER")) : 0;
+        // MHP3RD_COOKED_GAP_AFTER=N (debugging): N bytes left empty after a
+        // draw's decoded vertices.
+        static const long cooked_gap_after =
+            std::getenv("MHP3RD_COOKED_GAP_AFTER") ? std::atol(std::getenv("MHP3RD_COOKED_GAP_AFTER")) : 0;
+        if (!raw && cooked_gap_after > 0) {
+            draw_end += cooked_gap_after;
+            if (draw_end > impl.vertex_limit) {
+                report_frame_space_full("vertex");
+                return;
+            }
+        }
+        if (raw && raw_gap_after > 0) {
+            draw_end += raw_gap_after;
+            if (draw_end > impl.vertex_limit) {
+                report_frame_space_full("vertex");
+                return;
+            }
+        }
+        static const bool trace_layout = std::getenv("MHP3RD_TRACE_RAW_LAYOUT") != nullptr;
+        if (trace_layout && raw) {
+            static std::uint32_t traced = 0u;
+            if (traced < 3000u && call.vertex_type == 0xb1au) {
+                ++traced;
+                std::cout << "[raw-layout] f=" << impl.frames << " rb=" << impl.readbacks << " start=" << vertex_start
+                          << " off=" << impl.vertex_offset << " prev=" << impl.last_writer
+                          << " prev_end=" << impl.last_writer_end << " raw_off=" << impl.raw_offset
+                          << " env_off=" << impl.environment_offset << " obj_off=" << impl.object_offset
+                          << " bytes=" << vertex_bytes << " idx=" << impl.direct_indices.size()
+                          << " grp=" << (impl.group.open ? 1 : 0) << " gend=" << impl.group.vertex_end
+                          << " graw=" << (impl.group.raw ? 1 : 0) << std::endl;
+            }
+        }
+        if (trace_layout) {
+            impl.last_writer = raw ? (call.vertex_type == 0xb1au ? "b1a" : "raw") : "cooked";
+            impl.last_writer_end = vertex_start + vertex_bytes;
         }
         auto *out = static_cast<std::uint8_t *>(impl.vertex_mapped) + vertex_start;
         if (raw) std::memcpy(out, call.raw_vertices, static_cast<std::size_t>(vertex_bytes));
@@ -5935,6 +6063,9 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
         std::memcpy(static_cast<std::uint8_t *>(impl.vertex_mapped) + impl.vertex_offset, impl.scratch.data(),
                     static_cast<std::size_t>(bytes));
         draw_end = impl.vertex_offset + bytes;
+        static const long cooked_gap_after =
+            std::getenv("MHP3RD_COOKED_GAP_AFTER") ? std::atol(std::getenv("MHP3RD_COOKED_GAP_AFTER")) : 0;
+        if (cooked_gap_after > 0 && draw_end + cooked_gap_after <= impl.vertex_limit) draw_end += cooked_gap_after;
         draw_count = static_cast<std::uint32_t>(impl.scratch.size());
         if (skinned)
             impl.recording_frame.skinned.insert(impl.recording_frame.skinned.end(), impl.scratch.begin(),
@@ -6139,10 +6270,10 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     VkRect2D vk_scissor{};
     vk_scissor.offset = {left, top};
     vk_scissor.extent = {static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
-    const std::array<std::uint32_t, 3> lighting_offsets{impl.environment_offset, impl.object_offset, impl.raw_offset};
+    std::array<std::uint32_t, 3> lighting_offsets{impl.environment_offset, impl.object_offset, impl.raw_offset};
     if (merge) {
-        const Impl::DrawState state{pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor,
-                                    blend_constants, push};
+        Impl::DrawState state{pipeline, texture_descriptor, lighting_offsets, vk_viewport, vk_scissor,
+                              blend_constants, push};
         if (!direct) {
             impl.flush_group();
             impl.record_state(state);
@@ -6160,7 +6291,7 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             std::uint32_t rebase = 0u;
             bool join = group.open && vertex_start == group.vertex_end && impl.state_known &&
                         Impl::same_state(state, impl.recorded) && group.raw == raw &&
-                        (!raw || group.stride == call.raw_stride) && !impl.check_gpu_decode;
+                        (!raw || group.stride == call.raw_stride) && (!impl.check_gpu_decode || check_join);
             // Recorded for drawing again, skinned draws join only skinned
             // ones: their vertices are kept on the CPU too, one after another
             // like the group's, so blended ones can replace the group's.
@@ -6169,13 +6300,61 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                 rebase = static_cast<std::uint32_t>((vertex_start - group.vertex_base) /
                                                     (raw ? call.raw_stride : sizeof(GpuVertex)));
                 join = rebase + vertex_count <= 65536u;
+            static const bool raw_nojoin = std::getenv("MHP3RD_RAW_NOJOIN") != nullptr;
+            if (raw && raw_nojoin) join = false;
+            }
+            if (join && checked) impl.slots[impl.slot].checks.back().vertex_type |= 0x80000000u;
+            static const bool raw_base_ubo = std::getenv("MHP3RD_RAW_BASE_UBO") != nullptr;
+            if (raw_base_ubo && raw && !join) {
+                // Its own block after its bytes, naming where they start; no
+                // draw joins its group.
+                RawBlock own = impl.last_raw;
+                own.extra[3] = static_cast<std::uint32_t>(vertex_start);
+                impl.vertex_offset = draw_end;
+                if (!impl.write_uniform(&own, impl.last_raw_bytes, impl.raw_offset)) return;
+                impl.last_raw = own;
+                draw_end = impl.vertex_offset;
+                lighting_offsets[2] = impl.raw_offset;
+                state.lighting = lighting_offsets;
+                base_in_block = true;
+            }
+            if (!join && check_reused && checked) {
+                // Its block names the last draw's slot, which a new group
+                // would write over from its first vertex: it gets its own,
+                // after its vertices, and so starts a group no draw joins.
+                RawBlock own = impl.last_raw;
+                own.extra[1] = check_slot;
+                impl.vertex_offset = draw_end;
+                if (!impl.write_uniform(&own, impl.last_raw_bytes, impl.raw_offset)) return;
+                impl.last_raw = own;
+                draw_end = impl.vertex_offset;
+                lighting_offsets[2] = impl.raw_offset;
+                state.lighting = lighting_offsets;
+                ++impl.check_dropped;
+            }
+            // MHP3RD_RAW_ALIGN=N (debugging): a raw draw that starts a group
+            // is moved to start on N bytes.
+            static const VkDeviceSize raw_align =
+                std::getenv("MHP3RD_RAW_ALIGN") ? std::strtoull(std::getenv("MHP3RD_RAW_ALIGN"), nullptr, 10) : 0u;
+            if (!join && raw && raw_align > 1u && vertex_start % raw_align != 0u) {
+                const VkDeviceSize moved = (vertex_start + raw_align - 1u) / raw_align * raw_align;
+                const VkDeviceSize delta = moved - vertex_start;
+                if (draw_end + delta > impl.vertex_limit) {
+                    report_frame_space_full("vertex");
+                    return;
+                }
+                auto *base = static_cast<std::uint8_t *>(impl.vertex_mapped);
+                std::memmove(base + moved, base + vertex_start, static_cast<std::size_t>(draw_end - vertex_start));
+                vertex_start = moved;
+                draw_end += delta;
             }
             if (!join) {
                 impl.flush_group();
                 impl.record_state(state);
                 // Metal wants index buffer offsets on 4 bytes.
                 impl.index_offset = (impl.index_offset + 3u) & ~VkDeviceSize{3u};
-                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw, call.raw_stride};
+                group = Impl::DrawGroup{true, vertex_start, vertex_start, impl.index_offset, 0u, 0u, raw, call.raw_stride,
+                                        call.vertex_type};
                 rebase = 0u;
                 impl.group_skinned = skinned;
             }
@@ -6190,6 +6369,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
             }
             impl.index_offset += impl.direct_indices.size() * sizeof(std::uint16_t);
             group.vertex_end = draw_end;
+            if ((check_reused && !join && checked) || base_in_block) group.vertex_end = vertex_start + 1u;  // joins nothing
+            if (base_in_block) group.base_in_block = true;
             group.index_count += draw_count;
             ++group.draws;
         }
@@ -6211,7 +6392,8 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
                             &texture_descriptor, 0u, nullptr);
     // Every pipeline shares one layout, so set 1 stays bound across pipeline
     // and texture changes; it is bound again only when a block moved.
-    if (!impl.lighting_bound || lighting_offsets != impl.bound_lighting_offsets) {
+    static const bool raw_rebind = std::getenv("MHP3RD_RAW_REBIND") != nullptr;
+    if (!impl.lighting_bound || lighting_offsets != impl.bound_lighting_offsets || raw_rebind) {
         vkCmdBindDescriptorSets(impl.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.pipeline_layout, 1u, 1u,
                                 &impl.lighting_descriptor, static_cast<std::uint32_t>(lighting_offsets.size()),
                                 lighting_offsets.data());
@@ -6224,6 +6406,13 @@ void VulkanRenderer::submit(const DrawCall &call, const GuestMemory &memory) {
     if (direct) {
         vkCmdBindIndexBuffer(impl.command_buffer, impl.vertex_buffer, index_start, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(impl.command_buffer, draw_count, 1u, 0u, 0, raw ? static_cast<std::uint32_t>(vertex_start) : 0u);
+        if (impl.breadcrumbs.write != nullptr && raw) {
+            char text[160];
+            std::snprintf(text, sizeof text, "raw draw vtype=0x%x base=%llu indices=%u at %llu verts=%zu stride=%u",
+                          call.vertex_type, static_cast<unsigned long long>(vertex_start), draw_count,
+                          static_cast<unsigned long long>(index_start), vertex_total, call.raw_stride);
+            impl.breadcrumb(impl.command_buffer, text);
+        }
     } else {
         vkCmdDraw(impl.command_buffer, draw_count, 1u, 0u, 0u);
     }
@@ -6304,6 +6493,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source, GuestMemory &me
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(impl.command_buffer, &begin);
     impl.breadcrumb(impl.command_buffer, "frame goes on after a read-back");
+    ++impl.readbacks;
     // The queries written so far stay valid: they were reset at the start of
     // the frame, and the next pair follows them.
     impl.begin_gpu_segment(impl.command_buffer);
@@ -6517,6 +6707,7 @@ void VulkanRenderer::Impl::submit_frame() {
     const perf::SplitScope split(perf::Split::Present);
     end_pass();
     end_gpu_segment(command_buffer);
+    breadcrumb(command_buffer, "frame ends");
     slots[slot].gpu_timer_pending = gpu_timer_used;
     vkEndCommandBuffer(command_buffer);
     std::array<VkCommandBuffer, 2> batch{};
@@ -6570,6 +6761,7 @@ void VulkanRenderer::Impl::finish_interpolated_frame(VkImage source, std::uint32
     transition(command_buffer, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transition(command_buffer, picture.color, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    breadcrumb(command_buffer, "the picture kept for interpolation");
     newer_picture_valid = true;
 
     if (older_frame.valid && older_frame.recorded && newer_frame.recorded) {
