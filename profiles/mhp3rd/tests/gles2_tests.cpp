@@ -1,10 +1,13 @@
 // Exercise actual GPU pixels; successful shader compilation alone is insufficient.
 #include "gpu/vulkan_renderer.hpp"
 #include "settings/settings.hpp"
+#include "perf/frame_stats.hpp"
 #include "imgui.h"
 #include <SDL3/SDL.h>
 #include <iostream>
 #include <stdexcept>
+#include <cmath>
+#include <thread>
 using namespace mhp3rd;
 using namespace mhp3rd::gpu;
 namespace {
@@ -72,6 +75,20 @@ int main(int argc,char **argv){
         auto &io=ImGui::GetIO();io.IniFilename=nullptr;io.DisplaySize=ImVec2(480,272);io.DeltaTime=1.0f/30;
         r.begin_ui_frame();ImGui::NewFrame();ImGui::Begin("GLES2 test");ImGui::TextUnformatted("Yakumo graphics test");ImGui::End();ImGui::Render();
         r.set_ui_draw_data(ImGui::GetDrawData());r.present_ui(true);r.shutdown_ui();ImGui::DestroyContext();
+        // Exercise the renderer/HLE accounting boundary: one game flip must
+        // produce one present, even when both layers participate in statistics.
+        perf::restart_measurement();
+        std::uint64_t virtual_us=0;
+        const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+        while(!perf::last_second().valid && std::chrono::steady_clock::now()<deadline){
+            const bool presented=r.present(a);
+            virtual_us+=33333;
+            perf::end_frame(virtual_us,presented);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        const auto &stats=perf::last_second();
+        expect(stats.valid && stats.fps>0 && std::abs(stats.fps-stats.game_fps*stats.speed)<0.001,
+               "present rate matches actual guest flips without double counting");
         std::cout<<"RESULT failures="<<failures<<" GPU="<<r.device_name()<<std::endl;
         return failures?1:0;
     }catch(const std::exception &e){std::cerr<<e.what()<<std::endl;return 2;}

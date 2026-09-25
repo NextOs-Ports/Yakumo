@@ -346,6 +346,7 @@ struct VulkanRenderer::Impl {
         glVertexAttribPointer(3,3,GL_FLOAT,GL_FALSE,sizeof(GpuVertex),reinterpret_cast<void*>(28));
     }
     void readback(Target &t, GuestMemory &memory) {
+        const perf::SplitScope timer(perf::Split::Writeback);
         bind(t);
         read_pixels.resize(static_cast<std::size_t>(width)*height*4);
         glReadPixels(0,0,static_cast<GLsizei>(width),static_cast<GLsizei>(height),GL_RGBA,GL_UNSIGNED_BYTE,read_pixels.data());
@@ -406,7 +407,9 @@ struct VulkanRenderer::Impl {
             capture_pending.clear();
         }
         if(!SDL_GL_SwapWindow(window))throw std::runtime_error(SDL_GetError());
-        perf::count_present();last_present=std::chrono::steady_clock::now();
+        // present() returns true, so perf::end_frame counts this flip once.
+        // Only interpolated presents need a separate count_present call.
+        last_present=std::chrono::steady_clock::now();
     }
 };
 
@@ -520,6 +523,7 @@ void VulkanRenderer::submit(const DrawCall &c,const GuestMemory &memory){
             break;
         }
         if(!framebuffer){
+            const perf::SplitScope texture_timer(perf::Split::Texture);
             const auto key=texture_key(memory,c.texture);
             auto it=i.textures.find(key);
             if(it==i.textures.end()){
@@ -640,6 +644,7 @@ void VulkanRenderer::read_back_framebuffer(std::uint32_t source,GuestMemory &mem
         if(t.drawn&&source>=a&&source<a+std::max(t.state.color_stride,kWidth)*kHeight*bytes){i.readback(t,memory);return;}}
 }
 bool VulkanRenderer::present(std::uint32_t display_address,std::optional<std::chrono::steady_clock::time_point>){
+    const perf::SplitScope timer(perf::Split::Present);
     auto &i=*impl_;++i.frames;if(!i.hold)i.display=address(display_address);
     if(i.fast && std::chrono::steady_clock::now()-i.last_present<kFastForwardPresentInterval)return false;
     i.blit(true);return true;

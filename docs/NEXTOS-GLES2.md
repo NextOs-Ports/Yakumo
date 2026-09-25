@@ -47,8 +47,10 @@ but simulation speed fell below 100% in parts of the opening and menus. Some
 unbuilt overlays used the upstream interpreter fallback. Compiling those two
 opening overlays removed that fallback in the second run, but the character
 editor still ran at about 28-35% simulation speed (around 8-11 actual game frames
-per second). The present counter includes UI presents and is not the game's
-simulation frame rate. The second run was closed with scripted quit; the existing
+per second). That build counted each game present twice (in the renderer and
+again in `perf::end_frame`); these estimates instead use game FPS multiplied by
+simulation speed. The duplicate renderer count has been removed for subsequent
+builds. The second run was closed with scripted quit; the existing
 runtime reported `window closed` and exit code 4. This is not a release or a
 completed port.
 
