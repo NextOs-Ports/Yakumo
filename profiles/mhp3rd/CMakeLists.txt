@@ -46,13 +46,26 @@ endif()
 
 # Renderer: SDL3 for the window and Vulkan for drawing. Both are optional so the
 # profile still builds headless on a machine without them.
-option(MHP3RD_RENDERER "Build the Vulkan renderer" ON)
+option(MHP3RD_RENDERER "Build a graphics renderer" ON)
+set(MHP3RD_GRAPHICS "Vulkan" CACHE STRING "Graphics backend: Vulkan or GLES2")
+set_property(CACHE MHP3RD_GRAPHICS PROPERTY STRINGS Vulkan GLES2)
 set(MHP3RD_RENDERER_SOURCES)
 if(MHP3RD_RENDERER)
     find_package(SDL3 QUIET)
-    find_package(Vulkan QUIET)
+    if(MHP3RD_GRAPHICS STREQUAL "GLES2")
+        find_library(MHP3RD_GLES2_LIBRARY GLESv2 REQUIRED)
+        set(MHP3RD_GRAPHICS_READY ${SDL3_FOUND})
+    elseif(MHP3RD_GRAPHICS STREQUAL "Vulkan")
+        find_package(Vulkan QUIET)
+    else()
+        message(FATAL_ERROR "Unknown MHP3RD_GRAPHICS: ${MHP3RD_GRAPHICS}")
+    endif()
     find_program(MHP3RD_GLSLANG NAMES glslangValidator glslang)
     if(SDL3_FOUND AND Vulkan_FOUND AND MHP3RD_GLSLANG)
+        set(MHP3RD_GRAPHICS_READY ON)
+    endif()
+    if(MHP3RD_GRAPHICS_READY)
+      if(MHP3RD_GRAPHICS STREQUAL "Vulkan")
         set(MHP3RD_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/ge_shaders.inc")
         set(MHP3RD_SHADERS
             "kGeVertexShader=${MHP3RD_PROFILE_DIR}/host/gpu/shaders/ge.vert"
@@ -77,6 +90,14 @@ if(MHP3RD_RENDERER)
                     "${MHP3RD_PROFILE_DIR}/tools/embed_shaders.py"
             COMMENT "Compiling GE shaders to SPIR-V")
         add_custom_target(mhp3rd_shaders DEPENDS "${MHP3RD_SHADER_INC}")
+      else()
+        set(MHP3RD_SHADER_INC "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders/gles_shaders.inc")
+        add_custom_command(OUTPUT "${MHP3RD_SHADER_INC}"
+            COMMAND python3 "${MHP3RD_PROFILE_DIR}/tools/embed_gles_shaders.py"
+                "${MHP3RD_PROFILE_DIR}/host/gpu/shaders" "${MHP3RD_SHADER_INC}"
+            DEPENDS tools/embed_gles_shaders.py host/gpu/shaders/ge_gles2.vert host/gpu/shaders/ge_gles2.frag)
+        add_custom_target(mhp3rd_shaders DEPENDS "${MHP3RD_SHADER_INC}")
+      endif()
         # Dear ImGui (third_party/imgui, unmodified) draws the port's own
         # interface over the game.
         set(MHP3RD_RENDERER_SOURCES
@@ -102,7 +123,13 @@ if(MHP3RD_RENDERER)
             third_party/imgui/imgui_widgets.cpp
             third_party/imgui/backends/imgui_impl_sdl3.cpp
             third_party/imgui/backends/imgui_impl_vulkan.cpp)
-        message(STATUS "mhp3rd: Vulkan renderer enabled")
+        if(MHP3RD_GRAPHICS STREQUAL "GLES2")
+            list(REMOVE_ITEM MHP3RD_RENDERER_SOURCES host/gpu/vulkan_renderer.cpp
+                host/gpu/replacement_textures.cpp third_party/imgui/backends/imgui_impl_vulkan.cpp)
+            list(APPEND MHP3RD_RENDERER_SOURCES host/gpu/gles2_renderer.cpp
+                third_party/imgui/backends/imgui_impl_opengl3.cpp)
+        endif()
+        message(STATUS "mhp3rd: ${MHP3RD_GRAPHICS} renderer enabled")
     else()
         message(STATUS "mhp3rd: renderer disabled (SDL3, Vulkan or glslang not found)")
         set(MHP3RD_RENDERER OFF)
@@ -238,7 +265,13 @@ if(MHP3RD_RENDERER)
         "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders"
         "${CMAKE_CURRENT_BINARY_DIR}/generated_version"
         "${MHP3RD_PROFILE_DIR}/third_party/imgui")
-    target_link_libraries(Yakumo PRIVATE SDL3::SDL3 Vulkan::Vulkan)
+    target_link_libraries(Yakumo PRIVATE SDL3::SDL3)
+    if(MHP3RD_GRAPHICS STREQUAL "GLES2")
+        target_compile_definitions(Yakumo PRIVATE MHP3RD_GLES2=1 IMGUI_IMPL_OPENGL_ES2=1)
+        target_link_libraries(Yakumo PRIVATE ${MHP3RD_GLES2_LIBRARY})
+    else()
+        target_link_libraries(Yakumo PRIVATE Vulkan::Vulkan)
+    endif()
 endif()
 # The host only: the generated code never sees FFmpeg.
 mhp3rd_use_ffmpeg(Yakumo)
@@ -586,3 +619,19 @@ foreach(meta IN LISTS MHP3RD_OVERLAY_METADATA)
 endforeach()
 list(LENGTH MHP3RD_OVERLAY_METADATA MHP3RD_OVERLAY_COUNT)
 message(STATUS "mhp3rd: ${MHP3RD_OVERLAY_COUNT} overlay librar(ies) in ${MHP3RD_OVERLAY_DIR}")
+
+# A small GPU test exercises the new backend without compiling game-derived code.
+if(MHP3RD_RENDERER AND MHP3RD_GRAPHICS STREQUAL "GLES2")
+    add_executable(mhp3rd_gles2_tests
+        tests/gles2_tests.cpp host/gpu/gles2_renderer.cpp host/gpu/texture_decode.cpp
+        host/input/bindings.cpp host/input/touch_controls.cpp host/settings/settings.cpp
+        host/install/user_data.cpp host/perf/frame_stats.cpp
+        third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp
+        third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp
+        third_party/imgui/backends/imgui_impl_opengl3.cpp)
+    add_dependencies(mhp3rd_gles2_tests mhp3rd_shaders)
+    target_include_directories(mhp3rd_gles2_tests PRIVATE host third_party/imgui
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_shaders")
+    target_compile_definitions(mhp3rd_gles2_tests PRIVATE IMGUI_IMPL_OPENGL_ES2=1 MHP3RD_GLES2=1)
+    target_link_libraries(mhp3rd_gles2_tests PRIVATE psprecomp_core SDL3::SDL3 ${MHP3RD_GLES2_LIBRARY})
+endif()

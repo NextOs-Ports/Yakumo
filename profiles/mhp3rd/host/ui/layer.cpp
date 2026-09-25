@@ -143,8 +143,13 @@ bool Layer::attach(gpu::VulkanRenderer &renderer) {
     // Keep the focused row highlighted: on a gamepad there is no pointer.
     io.ConfigNavCursorVisibleAlways = true;
     io.ConfigNavEscapeClearFocusItem = false;
-    if (!ImGui_ImplSDL3_InitForVulkan(renderer.window())) {
-        std::cout << "[ui] ImGui_ImplSDL3_InitForVulkan failed; no menu\n";
+#if defined(MHP3RD_GLES2)
+    const bool input_ready = ImGui_ImplSDL3_InitForOpenGL(renderer.window(), SDL_GL_GetCurrentContext());
+#else
+    const bool input_ready = ImGui_ImplSDL3_InitForVulkan(renderer.window());
+#endif
+    if (!input_ready) {
+        std::cout << "[ui] ImGui SDL3 initialization failed; no menu\n";
         ImGui::DestroyContext();
         return false;
     }

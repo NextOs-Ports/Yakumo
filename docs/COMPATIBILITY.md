@@ -28,6 +28,16 @@ What works on each platform, as last checked by hand. Each row is a part of the 
 
 Rows marked ❌ on every platform are missing features rather than platform problems.
 
+### Experimental NextOS GLES2
+
+At `0f5780b`, physical AArch64 NextOS/Mali-450 passed the synthetic GLES2 pixel
+checks and displayed the Japanese HD opening, movie, title, main menu and textured
+3D character editor. This was launched through EmulationStation using the
+firmware SDL3/GLES2 libraries. It is an initial graphics result only: no completed
+gameplay, audio, controller or performance approval; the editor reached only
+about 28-35% simulation speed. See
+[NEXTOS-GLES2.md](NEXTOS-GLES2.md) for scope and remaining work.
+
 ## Input
 
 | | macOS (Apple Silicon) | Linux | Steam Deck | Windows | Android (emulator only, device test pending [#127]) |
