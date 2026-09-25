@@ -24,11 +24,13 @@ upstream ImGui GLES2 backend. Opaque scanout alpha is restored before swapping.
 
 A dedicated `mhp3rd_gles2_tests` executable reads actual GPU pixels and checks
 sprites, RGBA textures, alpha rejection, framebuffer sampling, attachment feedback,
-capture, and ImGui initialization. These checks passed on an NVIDIA RTX 4070 Linux
-host using its OpenGL ES driver. This does not establish Mali-450 compatibility,
-game graphics correctness, gameplay, audio or performance.
+capture, source-alpha blending, transformed geometry, ambient material lighting,
+depth rejection, fog and ImGui initialization. These checks passed on an NVIDIA
+RTX 4070 Linux host and on physical Mali-450/NextOS using the firmware SDL3 and
+GLES2 driver, launched through EmulationStation. This does not establish game
+graphics correctness, gameplay, audio or performance.
 
-AArch64 game code and overlay builds and physical rendering validation are in
+AArch64 game code and overlay builds and physical game rendering validation are in
 progress. This is not a release or a completed port.
 
 ## Current limits
