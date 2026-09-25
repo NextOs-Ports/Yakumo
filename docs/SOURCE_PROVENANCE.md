@@ -51,7 +51,7 @@ Third-party source, binary dependencies, shader code and notices stay beside the
 
 | Component | Used by | License | How it is included |
 | --- | --- | --- | --- |
-| [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | mhp3rd profile: in-game menu and setup screens | MIT | Unmodified copy in `profiles/mhp3rd/third_party/imgui` with its `LICENSE.txt` |
+| [Dear ImGui](https://github.com/ocornut/imgui) 1.92.9b | mhp3rd profile: in-game menu and setup screens | MIT | Unmodified copy in `profiles/mhp3rd/third_party/imgui` with its `LICENSE.txt`; GLES2 backend files are from upstream tag `v1.92.9b`, commit `f1cc2ae15e53a861a874c3034aae6798fde194ab`, matching the vendored `imgui.h` byte for byte |
 | [tiny-AES-c](https://github.com/kokke/tiny-AES-c) | mhp3rd profile: installer and save data | Unlicense (public domain) | Unmodified copy in `profiles/mhp3rd/third_party/tiny_aes` with its `UNLICENSE` |
 | [stb_truetype](https://github.com/nothings/stb) 1.26 | mhp3rd profile: game text | MIT or public domain | Single header, `profiles/mhp3rd/third_party/stb_truetype.h`, notice at its end |
 | [stb_image](https://github.com/nothings/stb) 2.30 and stb_image_write 1.16 | mhp3rd profile: texture pack images (PNG only) | MIT or public domain | Single headers from commit `2c980bb`, `profiles/mhp3rd/third_party/stb_image.h` and `stb_image_write.h`, notices at their ends |
