@@ -66,6 +66,18 @@ int main(int argc,char **argv){
         for(auto &v:behind.vertices)v.position[2]=0.5f;
         r.submit(behind,memory);r.read_back_framebuffer(a,memory);
         expect(pixel(memory,a,260,150)==0xff0000ff,"depth test rejects farther transformed geometry");
+        auto culled=tri;culled.depth.function=1;culled.culling_enabled=true;culled.cull_clockwise=true;
+        culled.material_color=0xff00ff00;
+        r.submit(culled,memory);r.read_back_framebuffer(a,memory);
+        expect(pixel(memory,a,260,150)==0xff00ff00,"PSP clockwise front face survives in target coordinates");
+        culled.cull_clockwise=false;culled.material_color=0xffff0000;
+        r.submit(culled,memory);r.read_back_framebuffer(a,memory);
+        expect(pixel(memory,a,260,150)==0xff00ff00,"opposite PSP winding is rejected");
+        culled.viewport.x_scale=240;culled.viewport.y_scale=-136;
+        culled.viewport.x_offset=240;culled.viewport.y_offset=136;
+        culled.viewport.offset_x=culled.viewport.offset_y=0;
+        r.submit(culled,memory);r.read_back_framebuffer(a,memory);
+        expect(pixel(memory,a,260,120)==0xffff0000,"negative PSP viewport preserves front-face convention");
         tri.depth.function=1;tri.fog.enabled=true;tri.fog.color=0xff0000;tri.fog.end=0;tri.fog.scale=1;
         r.submit(tri,memory);r.read_back_framebuffer(a,memory);
         expect(pixel(memory,a,260,150)==0xffff0000,"fog blends transformed geometry");

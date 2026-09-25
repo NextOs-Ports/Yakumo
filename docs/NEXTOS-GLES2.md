@@ -54,6 +54,15 @@ builds. The second run was closed with scripted quit; the existing
 runtime reported `window closed` and exit code 4. This is not a release or a
 completed port.
 
+The first village attempt exposed incorrect culled geometry and roughly 2 game
+frames/s while the village overlays still used the interpreter. The GLES2 winding
+mapping has been corrected: targets keep PSP top at row zero, while Vulkan and
+OpenGL use opposite signed-area conventions in those coordinates. Three
+constructed tests reproduce the old rejection of front faces, including a
+negative PSP viewport. `MHP3RD_GLES_LEGACY_CULL=1` restores the old mapping only
+for comparison. Physical village verification with this correction is pending.
+The area convention is specified in [Vulkan rasterization](https://docs.vulkan.org/spec/latest/chapters/primsrast.html#primsrast-polygons).
+
 ## Development layout
 
 Copy `profiles/mhp3rd/scripts/run_nextos.sh` beside the target `Yakumo` executable,

@@ -279,6 +279,7 @@ struct VulkanRenderer::Impl {
     bool ready{}, quit{}, ui{}, game_input{true}, pointer_free{}, scripted_input{};
     bool hold{}, fast{}, sharp_screen{}, sharp_textures{}, held_pack{}, perf_overlay{};
     bool suppress_held{}, mouse_captured{};
+    const bool legacy_cull{std::getenv("MHP3RD_GLES_LEGACY_CULL") != nullptr};
     unsigned suppressed_buttons{};
     std::array<bool, input::kKeyPositions> scripted_keys{};
     unsigned mouse_buttons{};
@@ -597,7 +598,13 @@ void VulkanRenderer::submit(const DrawCall &c,const GuestMemory &memory){
         glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
         if(c.depth.test_enabled)glEnable(GL_DEPTH_TEST);else glDisable(GL_DEPTH_TEST);
         glDepthFunc(compare(c.depth.function));glDepthMask(c.depth.write_enabled?GL_TRUE:GL_FALSE);
-        if(c.culling_enabled&&!c.through){glEnable(GL_CULL_FACE);glCullFace(GL_BACK);glFrontFace(c.cull_clockwise?GL_CW:GL_CCW);}else glDisable(GL_CULL_FACE);
+        if(c.culling_enabled&&!c.through&&c.primitive!=PrimitiveType::Sprites){
+            glEnable(GL_CULL_FACE);glCullFace(GL_BACK);
+            // Target row zero is PSP top. Vulkan's framebuffer-area formula
+            // has the opposite sign to OpenGL's for these same coordinates.
+            // Keep the original GE winding after converting the viewport.
+            glFrontFace(c.cull_clockwise!=i.legacy_cull?GL_CCW:GL_CW);
+        }else glDisable(GL_CULL_FACE);
         if(c.blend.enabled){
             glEnable(GL_BLEND);auto src=factor(c.blend.source_factor,c.blend.fixed_source,true),dstf=factor(c.blend.destination_factor,c.blend.fixed_destination,false);
             auto constant=color(src==GL_CONSTANT_COLOR?c.blend.fixed_source:c.blend.fixed_destination);
