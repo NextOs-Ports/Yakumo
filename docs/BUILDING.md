@@ -62,6 +62,13 @@ The recompiled code nests deeply, so the main thread needs a 64 MiB stack. Start
 ulimit -s 65536 && out/mhp3rd/bin/Yakumo
 ```
 
+### NextOS GLES2 development
+
+The experimental AArch64/Mali-450 backend uses `MHP3RD_GRAPHICS=GLES2` and
+the current firmware toolchain, SDL3 and GLES2 driver. Generate the game code
+with host tools before cross-compiling. See [NEXTOS-GLES2.md](NEXTOS-GLES2.md)
+for configuration, physical verification status and remaining limits.
+
 ### Steam Deck
 
 SteamOS keeps its system read-only, so build inside a container and run the result on SteamOS itself. SteamOS 3.8 has glibc 2.41, the same as Debian 13, so a binary built in a Debian 13 container runs directly on the host, in Game Mode too.

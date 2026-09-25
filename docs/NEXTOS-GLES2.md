@@ -30,8 +30,42 @@ RTX 4070 Linux host and on physical Mali-450/NextOS using the firmware SDL3 and
 GLES2 driver, launched through EmulationStation. This does not establish game
 graphics correctness, gameplay, audio or performance.
 
-AArch64 game code and overlay builds and physical game rendering validation are in
-progress. This is not a release or a completed port.
+The AArch64 executable has also booted the Japanese HD game through the physical
+device's EmulationStation launch path. Inspected captures show the CAPCOM and
+Dolby screens, opening movie, title, main menu and character-creation choices.
+The next bounded run also displayed the textured, lit 3D character in the editor,
+with both a pre-swap window capture and physical framebuffer scanout inspected.
+Both guest render-target captures and actual 1280 x 720 framebuffer scanout were
+inspected. The executable and four initial overlay modules built with the current
+firmware toolchain and loaded the firmware libraries directly.
+
+This establishes initial game image output, not complete rendering correctness.
+Village/quest graphics, gameplay, audio, input exit and sustained performance
+remain unverified.
+The first bounded run reached its timeout; there were no renderer exceptions,
+but simulation speed fell below 100% in parts of the opening and menus. Some
+unbuilt overlays used the upstream interpreter fallback. Compiling those two
+opening overlays removed that fallback in the second run, but the character
+editor still ran at about 28-35% simulation speed (around 8-11 actual game frames
+per second). The present counter includes UI presents and is not the game's
+simulation frame rate. The second run was closed with scripted quit; the existing
+runtime reported `window closed` and exit code 4. This is not a release or a
+completed port.
+
+## Development layout
+
+Copy `profiles/mhp3rd/scripts/run_nextos.sh` beside the target `Yakumo` executable,
+`overlays/`, `game/` and `fonts/`. The owner's prepared `game/` holds `EBOOT.ELF`,
+`disc.iso` and `ms0/`; generated overlay modules are local build outputs. Place
+the licensed Noto Sans CJK Japanese font in `fonts/NotoSansCJKjp-Regular.otf`.
+The launcher initializes fullscreen/Original aspect only when settings are absent,
+selects native internal resolution and preserves the firmware's audio selection.
+It is a development launcher, not a framework package or release installer.
+
+Run it through the device frontend with a bounded outer test harness. Use
+`MHP3RD_INPUT_LIVE` for finite navigation steps and `MHP3RD_SCREENSHOT_DIR` for
+captures. Preserve the exact image-producing binary and its external hash record;
+changing code later requires new evidence for the affected behavior.
 
 ## Current limits
 
